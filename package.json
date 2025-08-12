@@ -1,0 +1,17 @@
+{
+  "name": "electron-shapefile-viewer",
+  "version": "1.0.0",
+  "description": "Minimal Electron GIS app to import and view Shapefiles with flexible encodings + CRS handling",
+  "main": "frontend/electron.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "electron ."
+  },
+  "dependencies": {
+    "electron": "^31.3.0",
+    "iconv-lite": "^0.6.3",
+    "mapshaper": "^0.6.61",
+    "proj4": "^2.19.10",
+    "shapefile": "^0.6.6"
+  }
+}
