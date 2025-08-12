@@ -1,12 +1,32 @@
-// frontend/renderer.js
+// renderer.js
 
-// ---------- Map + basemaps ----------
-const map = L.map("map", { zoomControl: false });
+// ---------- utils ----------
+function clamp(n, min, max, fallback = min) {
+  if (Number.isNaN(n)) return fallback;
+  return Math.max(min, Math.min(max, n));
+}
+function debounce(fn, wait = 200) {
+  let t; return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), wait); };
+}
+function getPropKeys(geojson) {
+  const f = geojson?.features?.[0] || null;
+  return f ? Object.keys(f.properties || {}) : [];
+}
+
+// ---------- DOM ----------
+const $map = document.getElementById("map");
+const $basemap = document.getElementById("basemapSelect");
+const $btnImport = document.getElementById("btnImport");
+const $layerList = document.getElementById("layerList");
+
+// ---------- Leaflet (Canvas) ----------
+const sharedCanvas = L.canvas({ padding: 0.5, tolerance: 3 });
+const map = L.map($map, { preferCanvas: true, renderer: sharedCanvas });
+map.setView([39, -96], 4);
 
 const baseLayers = {
   osm: L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    attribution: "&copy; OpenStreetMap contributors",
-    maxZoom: 22
+    attribution: "&copy; OpenStreetMap contributors", maxZoom: 22
   }),
   esri_streets: L.tileLayer(
     "https://services.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
@@ -15,323 +35,193 @@ const baseLayers = {
   esri_sat: L.tileLayer(
     "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
     { attribution: "Imagery © Esri" }
+  ),
+  carto_light: L.tileLayer(
+    "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
+    { attribution: "&copy; CARTO & OpenStreetMap", maxZoom: 22 }
+  ),
+  stamen_toner: L.tileLayer(
+    "https://stamen-tiles.a.ssl.fastly.net/toner-lite/{z}/{x}/{y}.png",
+    { attribution: "Map tiles by Stamen; Data © OpenStreetMap" }
   )
 };
-
 let currentBase = baseLayers.osm.addTo(map);
-L.control.zoom({ position: "bottomright" }).addTo(map);
-map.setView([39.5, -98.5], 4); // USA-ish default
 
-// ---------- UI refs ----------
-const $btnImport  = document.getElementById("btnImport");
-const $layerList  = document.getElementById("layerList");
-const $basemapSel = document.getElementById("basemapSel");
+// listen for basemap changes
+$basemap?.addEventListener("change", () => {
+  const key = $basemap.value;
+  if (!baseLayers[key]) return;
+  if (currentBase) map.removeLayer(currentBase);
+  currentBase = baseLayers[key].addTo(map);
+});
 
-// ---------- Sanity ----------
-try { console.log(window.backend?.ping?.() || "preload available"); } catch { console.warn("no preload"); }
-
-// ---------- State ----------
-const layers = new Map(); // id -> { layer, name, color, weight, opacity, visible, propKeys }
+// ---------- state ----------
+const layers = new Map(); // id -> { layer, name, color, weight, opacity, visible, paneName, propKeys }
 let idCounter = 1;
 
-// palette
-const PALETTE = ["#d81b60","#1e88e5","#43a047","#f4511e","#8e24aa","#3949ab","#00897b","#fdd835","#5d4037","#0081cb"];
-let paletteIdx = 0;
-const nextColor = () => { const c = PALETTE[paletteIdx % PALETTE.length]; paletteIdx++; return c; };
-
-// ---------- Basemap switching ----------
-$basemapSel.addEventListener("change", () => {
-  const v = $basemapSel.value;
-  if (currentBase) map.removeLayer(currentBase);
-  currentBase = baseLayers[v];
-  currentBase.addTo(map);
-});
-
-// ---------- Import (dialog) ----------
-$btnImport.addEventListener("click", async () => {
-  try {
-    const paths = await window.backend.selectShapefiles();
-    if (!paths || paths.length === 0) return;
-    for (const p of paths) await loadShapefile(p);
-  } catch (e) {
-    console.error("Import error:", e);
-    alert("Import failed. Check DevTools console for details.");
-  }
-});
-
-// ---------- Import (drag & drop) ----------
-const dropTargets = [document.body, document.getElementById("map")];
-dropTargets.forEach(t => {
-  t.addEventListener("dragover", (e) => { e.preventDefault(); e.stopPropagation(); });
-  t.addEventListener("drop", async (e) => {
-    e.preventDefault(); e.stopPropagation();
-    const files = [...(e.dataTransfer?.files || [])];
-    const shpFiles = files.filter(f => f.path && f.path.toLowerCase().endsWith(".shp"));
-    if (shpFiles.length === 0) {
-      if (files.length) alert("Drop a .shp file (keep .shx/.dbf/.prj beside it).");
-      return;
-    }
-    for (const f of shpFiles) await loadShapefile(f.path);
-  });
-});
-
-// ---------- Helpers ----------
-function getPropKeys(geojson) {
-  const keys = new Set();
-  for (const f of geojson.features || []) {
-    if (f.properties) {
-      for (const k of Object.keys(f.properties)) keys.add(k);
-      if (keys.size >= 30) break;
-    }
-  }
-  return Array.from(keys).sort();
-}
-
-function clamp(v, min, max, fallback) {
-  return Number.isFinite(v) ? Math.min(max, Math.max(min, v)) : fallback;
-}
-
-// Apply color/weight/opacity + point radius
-function applyLayerStyle(layerId) {
-  const st = layers.get(layerId);
-  if (!st) return;
-
-  const stroke = { color: st.color, weight: st.weight, opacity: st.opacity };
-  const fill   = { fillColor: st.color, fillOpacity: Math.min(st.opacity * 0.35, 1) };
-
-  st.layer.setStyle?.({ ...stroke, ...fill });
-
-  st.layer.eachLayer(l => {
-    if (l.setStyle)  l.setStyle({ ...stroke, ...fill });
-    if (l.setRadius) l.setRadius(Math.max(3, st.weight + 1));
-  });
-}
-
-// Zoom to layer
-function zoomToLayer(layerId) {
-  const st = layers.get(layerId);
-  if (!st) return;
-
-  let b = null;
-  try { b = st.layer.getBounds(); } catch {}
-  if (b && b.isValid()) {
-    map.fitBounds(b.pad(0.05));
+// ---------- import ----------
+async function importLayers() {
+  if (!window.backend?.selectShapefiles || !window.backend?.ingestShapefile) {
+    alert("IPC not available. Check preload/electron wiring.");
     return;
   }
+  const sel = await window.backend.selectShapefiles(); // may return {ok, paths} or a raw array
+  const paths = Array.isArray(sel) ? sel : sel?.paths;
+  if (!paths?.length) return;
 
-  // Fallback for pure point layers
-  const pts = [];
-  st.layer.eachLayer(l => { if (l.getLatLng) pts.push(l.getLatLng()); });
-  if (pts.length) {
-    map.fitBounds(L.latLngBounds(pts).pad(0.3));
+  for (const shpPath of paths) {
+    const res = await window.backend.ingestShapefile(shpPath, null);
+    if (res?.ok && res.geojson) addGeoJSONLayer(res.name || shpPath, res.geojson);
+    else console.error("Ingest failed:", res?.error || res);
   }
 }
+$btnImport?.addEventListener("click", importLayers);
 
-// ---------- Loader ----------
-async function loadShapefile(shpPath) {
-  console.log("[loadShapefile]", shpPath);
-  let res = await window.backend.ingestShapefile(shpPath, null);
-
-  if (res?.needsSrcEpsg) {
-    const guess = "4269";
-    const epsg = prompt(
-      "This shapefile is missing a .prj.\nEnter the SOURCE EPSG (e.g., 3857 Web Mercator, 4269 NAD83, 3435 WISCRS, 4326 WGS84):",
-      guess
-    );
-    if (!epsg) return;
-    res = await window.backend.ingestShapefile(shpPath, epsg.trim());
-  }
-  if (!res || !res.ok) {
-    console.error("ingest failed:", res);
-    alert(`Failed to import:\n${res?.error || "Unknown error"}`);
-    return;
-  }
-
-  console.log("debug:", res?.debug); // quick extent/types sanity
-
-  const { name, geojson } = res;
-  const color   = nextColor();
-  const weight  = 2;
-  const opacity = 1;
-
+// ---------- add layer ----------
+function addGeoJSONLayer(name, geojson) {
   const layerId = String(idCounter++);
-  const layer = L.geoJSON(geojson, {
-    pointToLayer: (_f, latlng) => L.circleMarker(latlng)
+  const paneName = `pane-${layerId}`;
+  map.createPane(paneName);
+  map.getPane(paneName).style.zIndex = String(500 + $layerList.children.length);
+
+  const st = {
+    name: name || `Layer ${layerId}`,
+    color: "#ff3333",
+    weight: 2,
+    opacity: 1,
+    visible: true,
+    propKeys: getPropKeys(geojson),
+    paneName
+  };
+
+  const leafletLayer = L.geoJSON(geojson, {
+    renderer: sharedCanvas,
+    pane: paneName,
+    interactive: false,
+    style: () => ({
+      color: st.color,
+      weight: st.weight,
+      opacity: 1,
+      fillColor: st.color,
+      fillOpacity: 0.35
+    }),
+    pointToLayer: (_f, latlng) =>
+      L.circleMarker(latlng, {
+        pane: paneName,
+        interactive: false,
+        radius: Math.max(3, st.weight + 1)
+      })
   }).addTo(map);
 
-  try {
-    const b = layer.getBounds();
-    if (b.isValid()) map.fitBounds(b.pad(0.05));
-  } catch {}
+  st.layer = leafletLayer;
+  layers.set(layerId, st);
 
-  layers.set(layerId, {
-    layer, name, color, weight, opacity,
-    visible: true,
-    propKeys: getPropKeys(geojson)
-  });
+  const b = leafletLayer.getBounds?.();
+  if (b?.isValid()) map.fitBounds(b, { padding: [20, 20] });
 
-  addLayerRow(layerId);
-  applyLayerStyle(layerId);
+  const li = buildLayerItem(layerId, st);
+  $layerList.prepend(li);
   syncMapOrder();
+  applyLayerStyle(layerId);
 }
 
-// ---------- UI rows ----------
-function addLayerRow(layerId) {
-  const st = layers.get(layerId);
-
+// ---------- UI row ----------
+function buildLayerItem(layerId, st) {
   const li = document.createElement("li");
   li.className = "layer-item";
   li.dataset.layerId = layerId;
+  li.draggable = true;
 
-  // Top row
-  const top = document.createElement("div");
-  top.className = "layer-top";
+  li.innerHTML = `
+    <div class="layer-top">
+      <button class="drag-handle" title="Drag to reorder">☰</button>
+      <div class="layer-name">${st.name}</div>
+      <input type="checkbox" class="chk" ${st.visible ? "checked" : ""} />
+      <button class="remove-btn" title="Remove layer">✕</button>
+    </div>
+    <div class="layer-controls">
+      <span class="small-label">Color</span>
+      <input type="color" class="color-chip" value="${st.color}">
+      <span class="small-label">Weight</span>
+      <input type="number" class="num weight-num" value="${st.weight}" min="0" max="20">
+      <span class="small-label">Opacity</span>
+      <input type="number" class="num opacity-num" value="${st.opacity}" min="0" max="1" step="0.05">
+    </div>
+  `;
 
-  const handle = document.createElement("button");
-  handle.className = "drag-handle";
-  handle.title = "Reorder";
-  handle.textContent = "≡";
-  handle.draggable = true;
+  const chk = li.querySelector(".chk");
+  const colorInput = li.querySelector(".color-chip");
+  const weightInput = li.querySelector(".weight-num");
+  const opacityInput = li.querySelector(".opacity-num");
+  const removeBtn = li.querySelector(".remove-btn");
 
-  const name = document.createElement("div");
-  name.className = "layer-name";
-  name.textContent = st.name;
-  name.title = "Double-click to zoom";
-  name.addEventListener("dblclick", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    zoomToLayer(layerId);
-  });
-
-  const toggle = document.createElement("input");
-  toggle.type = "checkbox"; toggle.className = "chk"; toggle.checked = true;
-  toggle.title = "Show/Hide";
-  toggle.addEventListener("change", () => {
-    st.visible = toggle.checked;
+  chk.addEventListener("change", () => {
+    st.visible = chk.checked;
     if (st.visible) st.layer.addTo(map); else map.removeLayer(st.layer);
     syncMapOrder();
   });
 
-  const zoomBtn = document.createElement("button");
-  zoomBtn.type = "button";
-  zoomBtn.textContent = "Zoom";
-  zoomBtn.addEventListener("click", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    zoomToLayer(layerId);
-  });
-
-  const removeBtn = document.createElement("button");
-  removeBtn.type = "button";
-  removeBtn.textContent = "Remove";
-  removeBtn.addEventListener("click", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    removeLayer(layerId, li);
-  });
-
-  top.appendChild(handle);
-  top.appendChild(name);
-  top.appendChild(toggle);
-  top.appendChild(zoomBtn);
-  top.appendChild(removeBtn);
-
-  // Controls row
-  const ctrl = document.createElement("div");
-  ctrl.className = "layer-controls";
-
-  // Color
-  const colorLbl = document.createElement("span"); colorLbl.className = "small-label"; colorLbl.textContent = "Color";
-  const colorInput = document.createElement("input");
-  colorInput.type = "color"; colorInput.className = "color-chip"; colorInput.value = st.color;
-  colorInput.addEventListener("input", () => {
+  colorInput.addEventListener("input", debounce(() => {
     st.color = colorInput.value;
     applyLayerStyle(layerId);
-  });
+  }, 180));
 
-  // Weight (number)
-  const wLbl = document.createElement("span"); wLbl.className = "small-label"; wLbl.textContent = "Weight";
-  const wNum = document.createElement("input");
-  wNum.type = "number"; wNum.className = "num"; wNum.min = "0"; wNum.max = "20"; wNum.step = "0.5";
-  wNum.value = String(st.weight);
-  wNum.addEventListener("change", () => {
-    const v = clamp(+wNum.value, 0, 20, st.weight);
-    st.weight = v; wNum.value = String(v);
+  weightInput.addEventListener("input", debounce(() => {
+    const v = clamp(+weightInput.value, 0, 20, st.weight);
+    st.weight = v; weightInput.value = String(v);
     applyLayerStyle(layerId);
+  }, 180));
+
+  opacityInput.addEventListener("input", debounce(() => {
+    const v = clamp(+opacityInput.value, 0, 1, st.opacity);
+    st.opacity = v; opacityInput.value = String(v);
+    const pane = map.getPane(st.paneName);
+    if (pane) pane.style.opacity = String(v);
+  }, 180));
+
+  removeBtn.addEventListener("click", () => {
+    map.removeLayer(st.layer);
+    layers.delete(layerId);
+    li.remove();
   });
 
-  // Opacity (0..1)
-  const oLbl = document.createElement("span"); oLbl.className = "small-label"; oLbl.textContent = "Opacity";
-  const oNum = document.createElement("input");
-  oNum.type = "number"; oNum.className = "num"; oNum.min = "0"; oNum.max = "1"; oNum.step = "0.05";
-  oNum.value = String(st.opacity);
-  oNum.addEventListener("change", () => {
-    const v = clamp(+oNum.value, 0, 1, st.opacity);
-    st.opacity = v; oNum.value = String(v);
-    applyLayerStyle(layerId);
-  });
-
-  // mount controls (labels only: Color, Weight, Opacity)
-  ctrl.appendChild(colorLbl); ctrl.appendChild(colorInput);
-  ctrl.appendChild(wLbl);     ctrl.appendChild(wNum);
-  ctrl.appendChild(oLbl);     ctrl.appendChild(oNum);
-
-  // assemble
-  li.appendChild(top);
-  li.appendChild(ctrl);
-  $layerList.appendChild(li);
-
-  // Drag only from handle
-  handle.addEventListener("dragstart", (e) => {
-    e.dataTransfer.setData("text/plain", layerId);
-    e.dataTransfer.effectAllowed = "move";
-  });
-  li.addEventListener("dragover", (e) => { e.preventDefault(); li.classList.add("drag-over"); });
-  li.addEventListener("dragleave", () => li.classList.remove("drag-over"));
-  li.addEventListener("drop", (e) => {
-    e.preventDefault(); li.classList.remove("drag-over");
-    const draggedId = e.dataTransfer.getData("text/plain");
-    const draggedEl = [...$layerList.children].find(n => n.dataset.layerId === draggedId);
-    if (!draggedEl || draggedEl === li) return;
+  // drag & drop
+  li.addEventListener("dragstart", () => li.classList.add("dragging"));
+  li.addEventListener("dragend", () => { li.classList.remove("dragging"); syncMapOrder(); });
+  li.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    const dragging = $layerList.querySelector(".dragging");
+    if (!dragging || dragging === li) return;
     const rect = li.getBoundingClientRect();
-    const before = (e.clientY - rect.top) < rect.height / 2;
-    $layerList.insertBefore(draggedEl, before ? li : li.nextSibling);
-    syncMapOrder();
+    const before = e.clientY - rect.top < rect.height / 2;
+    if (before) $layerList.insertBefore(dragging, li);
+    else $layerList.insertBefore(dragging, li.nextSibling);
   });
 
-  // Stop drag bubbling from interactive controls
-  [removeBtn, zoomBtn, colorInput, wNum, oNum, toggle].forEach(el => {
-    el.setAttribute("draggable", "false");
-    ["pointerdown","mousedown","touchstart","dragstart"].forEach(evt =>
-      el.addEventListener(evt, ev => ev.stopPropagation())
-    );
-  });
+  return li;
 }
 
-// ---------- Remove & ordering ----------
-function removeLayer(layerId, rowEl) {
+// ---------- styling + order ----------
+function applyLayerStyle(layerId) {
   const st = layers.get(layerId);
   if (!st) return;
-  map.removeLayer(st.layer);
-  layers.delete(layerId);
-  rowEl?.remove();
+  const stroke = { color: st.color, weight: st.weight, opacity: 1 };
+  const fill = { fillColor: st.color, fillOpacity: 0.35 };
+  st.layer.setStyle?.({ ...stroke, ...fill });
+  st.layer.eachLayer?.(l => {
+    if (l.setStyle) l.setStyle({ ...stroke, ...fill });
+    if (l.setRadius) l.setRadius(Math.max(3, st.weight + 1));
+  });
+  const pane = map.getPane(st.paneName);
+  if (pane) pane.style.opacity = String(st.opacity);
 }
-
 function syncMapOrder() {
-  // Visible layers render in the same order as the list (top row on top)
   const ids = [...$layerList.children].map(n => n.dataset.layerId);
-
-  // remove all visible
-  for (const id of ids) {
-    const st = layers.get(id);
-    if (st?.visible) map.removeLayer(st.layer);
-  }
-
-  // re-add in list order
+  let z = 500;
   for (const id of ids) {
     const st = layers.get(id);
     if (!st?.visible) continue;
-    st.layer.addTo(map);
-    applyLayerStyle(id); // also re-sets point radii
+    const pane = map.getPane(st.paneName);
+    if (pane) pane.style.zIndex = String(z++);
   }
 }
