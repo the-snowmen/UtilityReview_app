@@ -4,7 +4,6 @@
   <head>
     <meta charset="UTF-8" />
     <title>UR App – GIS Viewer</title>
-    <!-- CSP: no inline scripts; allow Leaflet CDN + remote tiles -->
     <meta http-equiv="Content-Security-Policy"
       content="default-src 'self' data: blob: https:;
                img-src 'self' data: blob: https:;
@@ -12,9 +11,8 @@
                script-src 'self' https://unpkg.com;
                connect-src 'self' https:;
                font-src 'self' data: https:;" />
-    <link rel="stylesheet"
-          href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-          crossorigin="" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" crossorigin="" />
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
@@ -38,10 +36,18 @@
           <button id="btnImport" title="Import GIS files">+ Import</button>
         </div>
       </div>
+
+      <div class="aoi-controls">
+        <button id="btnDrawAoi" title="Draw an area of interest polygon">Draw AOI</button>
+        <button id="btnClearAoi" title="Remove the AOI polygon">Clear</button>
+        <button id="btnExportAoi" title="Export features inside AOI to KMZ">Export AOI → KMZ</button>
+      </div>
+
       <ul id="layerList" class="layer-list"></ul>
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+    <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js" crossorigin=""></script>
     <script type="module" src="./js/main.js"></script>
   </body>
 </html>

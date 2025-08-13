@@ -1,9 +1,8 @@
-/* frontend/style.css */
 html, body { height: 100%; margin: 0; }
 #map { position: fixed; inset: 0; }
 
 .floating-panel {
-  position: fixed; top: 12px; left: 12px; width: 460px; max-height: 80%;
+  position: fixed; top: 12px; left: 12px; width: 480px; max-height: 82%;
   background: rgba(255,255,255,0.98); border-radius: 12px;
   box-shadow: 0 8px 24px rgba(0,0,0,0.15);
   overflow: hidden; display: flex; flex-direction: column; z-index: 1000;
@@ -14,15 +13,17 @@ html, body { height: 100%; margin: 0; }
   background: #f5f7fb; padding: 10px 12px; border-bottom: 1px solid #e7eaf3;
 }
 .header-actions { display:flex; gap:8px; }
-#btnImport, #btnFitAll {
-  border:none; background:#2563eb; color:white; font-weight:600;
-  padding:6px 10px; border-radius:8px; cursor:pointer;
-}
+#btnImport, #btnFitAll { border:none; background:#2563eb; color:white; font-weight:600; padding:6px 10px; border-radius:8px; cursor:pointer; }
 #btnFitAll { background:#4f46e5; }
 #btnImport:hover, #btnFitAll:hover { filter: brightness(0.95); }
 
-.layer-list { list-style:none; margin:0; padding:8px 10px 12px 10px; overflow:auto;
-  font:13px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+.aoi-controls { display:flex; gap:8px; align-items:center; padding:8px 10px; border-bottom: 1px solid #eef2f7; background:#fff; }
+#btnDrawAoi, #btnClearAoi, #btnExportAoi { border:none; background:#0f766e; color:white; font-weight:600; padding:6px 10px; border-radius:8px; cursor:pointer; }
+#btnClearAoi { background:#9ca3af; }
+#btnExportAoi { background:#16a34a; }
+#btnDrawAoi:hover, #btnClearAoi:hover, #btnExportAoi:hover { filter: brightness(0.95); }
+
+.layer-list { list-style:none; margin:0; padding:8px 10px 12px 10px; overflow:auto; font:13px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
 .layer-item { border-radius:10px; padding:6px 8px; }
 .layer-item:hover { background:#f8fafc; }
 .layer-top { display:grid; grid-template-columns: auto 1fr auto auto auto; gap:8px; align-items:center; }

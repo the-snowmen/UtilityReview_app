@@ -2,6 +2,17 @@
 import { map, sharedCanvas } from "./map.js";
 import { state, nextId, getById } from "./store.js";
 
+/** Normalize any GeoJSON-ish input to a FeatureCollection */
+function toFeatureCollection(gj) {
+  if (!gj) return { type: "FeatureCollection", features: [] };
+  if (gj.type === "FeatureCollection") return gj;
+  if (gj.type === "Feature") return { type: "FeatureCollection", features: [gj] };
+  return {
+    type: "FeatureCollection",
+    features: [{ type: "Feature", properties: {}, geometry: gj }],
+  };
+}
+
 function getPropKeys(geojson) {
   const f = geojson?.features?.[0] || null;
   return f ? Object.keys(f.properties || {}) : [];
@@ -12,6 +23,9 @@ export function addGeoJSONLayer(name, geojson, prependToTop = true) {
   const paneName = `pane-${id}`;
   map.createPane(paneName);
 
+  // Keep a sanitized deep copy for export/analysis (avoid circular refs)
+  const source = JSON.parse(JSON.stringify(toFeatureCollection(geojson)));
+
   const st = {
     id,
     name: name || `Layer ${id}`,
@@ -19,12 +33,13 @@ export function addGeoJSONLayer(name, geojson, prependToTop = true) {
     weight: 2,
     opacity: 1,
     visible: true,
-    propKeys: getPropKeys(geojson),
+    propKeys: getPropKeys(source),
     paneName,
     layer: null,
+    source,                 // <- stable clean copy
   };
 
-  const leafletLayer = L.geoJSON(geojson, {
+  const leafletLayer = L.geoJSON(source, {
     pane: paneName,
     renderer: sharedCanvas,
     interactive: false,
@@ -53,6 +68,7 @@ export function addGeoJSONLayer(name, geojson, prependToTop = true) {
 
   const b = leafletLayer.getBounds?.();
   if (b?.isValid()) map.fitBounds(b, { padding: [20, 20] });
+
   return id;
 }
 
