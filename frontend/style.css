@@ -1,78 +1,43 @@
+/* frontend/style.css */
 html, body { height: 100%; margin: 0; }
 #map { position: fixed; inset: 0; }
 
-/* Panel */
 .floating-panel {
-  position: fixed; top: 12px; left: 12px; width: 420px; max-height: 78%;
+  position: fixed; top: 12px; left: 12px; width: 460px; max-height: 80%;
   background: rgba(255,255,255,0.98); border-radius: 12px;
   box-shadow: 0 8px 24px rgba(0,0,0,0.15);
   overflow: hidden; display: flex; flex-direction: column; z-index: 1000;
 }
 .panel-header {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: center;
-  gap: 10px;
+  display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px;
   font: 600 14px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-  background: #f5f7fb;
-  padding: 10px 12px;
-  border-bottom: 1px solid #e7eaf3;
+  background: #f5f7fb; padding: 10px 12px; border-bottom: 1px solid #e7eaf3;
 }
-.basemap-switcher { display: flex; gap: 6px; align-items: center; font-weight: 600; }
-.basemap-switcher select {
-  border: 1px solid #d0d7e2; border-radius: 8px; padding: 4px 6px; background: #fff;
+.header-actions { display:flex; gap:8px; }
+#btnImport, #btnFitAll {
+  border:none; background:#2563eb; color:white; font-weight:600;
+  padding:6px 10px; border-radius:8px; cursor:pointer;
 }
+#btnFitAll { background:#4f46e5; }
+#btnImport:hover, #btnFitAll:hover { filter: brightness(0.95); }
 
-#btnImport {
-  border: none; background: #2d6cdf; color: white; font-weight: 600;
-  padding: 6px 10px; border-radius: 8px; cursor: pointer;
-}
-#btnImport:hover { filter: brightness(0.95); }
-
-/* List */
-.layer-list { list-style: none; margin: 0; padding: 8px 10px 12px 10px; overflow: auto; font: 13px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
-
-/* Each layer row becomes two rows: title + controls */
-.layer-item { border-radius: 10px; padding: 6px 8px; }
-.layer-item:hover { background: #f8fafc; }
-.layer-item[draggable="true"] { cursor: grab; }
-.layer-item.drag-over { outline: 2px dashed #8aa1ff; }
-
-.layer-top {
-  display: grid;
-  grid-template-columns: auto 1fr auto auto; /* handle | name | checkbox | remove */
-  gap: 8px; align-items: center;
-}
+.layer-list { list-style:none; margin:0; padding:8px 10px 12px 10px; overflow:auto;
+  font:13px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+.layer-item { border-radius:10px; padding:6px 8px; }
+.layer-item:hover { background:#f8fafc; }
+.layer-top { display:grid; grid-template-columns: auto 1fr auto auto auto; gap:8px; align-items:center; }
 .drag-handle{border:none;background:transparent;color:#64748b;cursor:grab;padding:0 4px;font-size:18px;line-height:1}
 .drag-handle:active{cursor:grabbing}
+.zoom-btn{border:none;background:#eef2ff;border-radius:6px;padding:4px 6px;cursor:pointer}
+.zoom-btn:hover{filter:brightness(0.95)}
 
-.num{ width: 70px; padding: 2px 6px; border:1px solid #d0d7e2; border-radius:6px; }
-
+.num{ width: 72px; padding: 2px 6px; border:1px solid #d0d7e2; border-radius:6px; }
 .layer-name { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
-.layer-controls {
-  display: grid;
-  grid-template-columns: repeat(6, auto);
-  gap: 8px; align-items: center; margin-top: 6px;
-}
+.layer-controls { display:grid; grid-template-columns: repeat(6, auto); gap:8px; align-items:center; margin-top:6px; }
 .small-label { font-size: 12px; color: #506080; }
+.color-chip { width:28px; height:24px; border:1px solid #d0d7e2; border-radius:6px; padding:0; background:none; cursor:pointer; }
 
-.chk { transform: translateY(1px); }
-
-.color-chip {
-  width: 28px; height: 24px; border: 1px solid #d0d7e2; border-radius: 6px; padding: 0; background: none; cursor: pointer;
-}
-.range { width: 86px; }
-
-.sel {
-  border: 1px solid #d0d7e2; border-radius: 6px; padding: 2px 6px; background: white;
-}
-
-/* Buttons */
-.layer-actions button {
-  border: none; background: #eef2ff; padding: 4px 8px; border-radius: 6px; cursor: pointer;
-}
-.layer-actions button:hover { filter: brightness(0.95); }
-
-/* Zoom bottom-right */
+/* Position zoom at bottom-right */
 .leaflet-control-zoom { margin: 0 12px 12px 0; }
+.leaflet-bottom.leaflet-right { pointer-events: none; }
+.leaflet-control { pointer-events: auto; }

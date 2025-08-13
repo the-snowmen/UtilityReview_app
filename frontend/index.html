@@ -1,44 +1,47 @@
+<!-- frontend/index.html -->
 <!DOCTYPE html>
 <html>
-<head>
-  <meta charset="UTF-8" />
-  <title>Shapefile Viewer</title>
-  <link
-    rel="stylesheet"
-    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
-    crossorigin=""
-  />
-  <link rel="stylesheet" href="./style.css" />
-</head>
-<body>
-  <div id="map"></div>
+  <head>
+    <meta charset="UTF-8" />
+    <title>UR App – GIS Viewer</title>
+    <!-- CSP: no inline scripts; allow Leaflet CDN + remote tiles -->
+    <meta http-equiv="Content-Security-Policy"
+      content="default-src 'self' data: blob: https:;
+               img-src 'self' data: blob: https:;
+               style-src 'self' 'unsafe-inline' https://unpkg.com;
+               script-src 'self' https://unpkg.com;
+               connect-src 'self' https:;
+               font-src 'self' data: https:;" />
+    <link rel="stylesheet"
+          href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+          crossorigin="" />
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div id="map"></div>
 
-  <div class="floating-panel">
-    <div class="panel-header">
-      <div class="basemap-switcher">
-        <span>Basemap</span>
-        <select id="basemapSelect" class="sel">
-          <option value="osm">OSM</option>
-          <option value="esri_streets">ESRI Streets</option>
-          <option value="esri_sat">ESRI Imagery</option>
-          <option value="carto_light">Carto Light</option>
-          <option value="stamen_toner">Stamen Toner</option>
-        </select>
+    <div class="floating-panel">
+      <div class="panel-header">
+        <div class="basemap-switcher">
+          <span>Basemap</span>
+          <select id="basemapSelect" class="sel">
+            <option value="osm">OSM</option>
+            <option value="esri_streets">ESRI Streets</option>
+            <option value="esri_sat">ESRI Imagery</option>
+            <option value="carto_light">Carto Light</option>
+            <option value="stamen_toner">Stamen Toner</option>
+          </select>
+        </div>
+        <div></div>
+        <div class="header-actions">
+          <button id="btnFitAll" title="Zoom to all visible layers">Fit All</button>
+          <button id="btnImport" title="Import GIS files">+ Import</button>
+        </div>
       </div>
-      <div></div>
-      <button id="btnImport" title="Import Shapefile(s)">+ Import</button>
+      <ul id="layerList" class="layer-list"></ul>
     </div>
 
-    <ul id="layerList" class="layer-list"></ul>
-  </div>
-
-
-  <script
-    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
-    crossorigin=""
-  ></script>
-  <script src="./renderer.js"></script>
-</body>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+    <script type="module" src="./js/main.js"></script>
+  </body>
 </html>
