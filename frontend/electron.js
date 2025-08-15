@@ -24,7 +24,7 @@ function createWindow() {
   win.once("ready-to-show", () => win.show());
   win.loadFile(path.join(__dirname, "index.html"));
 
-  // Block window.open and open external links in default browser
+  // Open external links in default browser
   win.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: "deny" };
@@ -61,25 +61,52 @@ ipcMain.handle("ingest-file", async (_evt, { path: filePath, srcEpsg = null } = 
 });
 
 // Back-compat alias
-ipcMain.handle("ingest-shapefile", async (evt, payload) => ipcMain.invoke("ingest-file", payload));
+ipcMain.handle("ingest-shapefile", async (evt, payload) =>
+  ipcMain.invoke("ingest-file", payload)
+);
 
 // ---------- IPC: Export AOI -> KMZ ----------
-ipcMain.handle("export-aoi-kmz", async (_evt, { aoi, features, suggestedName } = {}) => {
+// Accepts both the old payload ({aoi, features, suggestedName})
+// and the new payload ({aoi, data, suggestedName, opts:{keepAttributes}})
+ipcMain.handle("export-aoi-kmz", async (_evt, payload = {}) => {
   try {
+    const {
+      aoi,
+      data,                 // preferred (array of {name, style, features} OR a FC)
+      features,             // back-compat (single FeatureCollection)
+      suggestedName = "aoi_export.kmz",
+      opts = {},
+    } = payload;
+
     if (!aoi) throw new Error("Missing AOI polygon");
-    if (!features || !Array.isArray(features.features) || features.features.length === 0) {
-      throw new Error("No features to export");
+
+    const exportData = data ?? features;
+    if (!exportData) throw new Error("No features to export");
+
+    // Validate whether we got an array-of-layers or a single FC
+    let hasContent = false;
+    if (Array.isArray(exportData)) {
+      hasContent = exportData.some(
+        l => l?.features?.type === "FeatureCollection" && l.features.features?.length
+      );
+    } else {
+      hasContent = exportData?.type === "FeatureCollection" && exportData.features?.length;
     }
+    if (!hasContent) throw new Error("No visible features to export");
 
     const { canceled, filePath } = await dialog.showSaveDialog(win, {
       title: "Save AOI Export (KMZ)",
-      defaultPath: suggestedName || "aoi_export.kmz",
+      defaultPath: suggestedName.endsWith(".kmz") ? suggestedName : `${suggestedName}.kmz`,
       filters: [{ name: "KMZ", extensions: ["kmz"] }],
     });
     if (canceled || !filePath) return { ok: false, canceled: true };
 
     const { exportClippedKmz } = require("../backend/export/clipToKmz.js");
-    await exportClippedKmz(aoi, features, filePath);
+    await exportClippedKmz(aoi, exportData, filePath, {
+      includeAoi: true,
+      keepAttributes: !!opts.keepAttributes, // <- checkbox support
+      kmlName: "AOI Export",
+    });
 
     return { ok: true, path: filePath };
   } catch (e) {

@@ -19,6 +19,8 @@ const $layerList = document.getElementById("layerList");
 const $btnDrawAoi = document.getElementById("btnDrawAoi");
 const $btnClearAoi = document.getElementById("btnClearAoi");
 const $btnExportAoi = document.getElementById("btnExportAoi");
+const $chkKeepAttrs = document.getElementById("chkKeepAttrs");
+
 
 // ---- Top controls
 $basemap?.addEventListener("change", () => switchBasemap($basemap.value));
@@ -185,27 +187,34 @@ async function onExportAoiKmz(e) {
   const aoi = getAoiGeoJSON();
   if (!aoi) { alert("Draw an AOI polygon first."); return; }
 
-  // Collect from sanitized sources
-  const collected = { type: "FeatureCollection", features: [] };
+  // Collect visible layers + their styles
+  const layersForExport = [];
   for (const id of state.order) {
     const st = state.layers.get(id);
-    if (!st?.visible || !st?.source?.features) continue;
-    // IMPORTANT: use concat (avoid spread -> call stack overflow)
-    collected.features = collected.features.concat(st.source.features);
+    if (!st?.visible || !st?.source?.features?.length) continue;
+
+    layersForExport.push({
+      name: st.name,
+      style: { color: st.color, weight: st.weight, opacity: st.opacity },
+      features: st.source,  // FeatureCollection
+    });
   }
-  if (!collected.features.length) { alert("No visible features to export."); return; }
+  if (!layersForExport.length) { alert("No visible features to export."); return; }
 
   if (!window.backend?.exportAoiKmz) { alert("Export API missing from preload."); return; }
 
-  // Deep-clone payloads to ensure structured-clone safety for IPC
+  // Deep-clone payloads (IPC structured clone safety)
   const safeAoi = JSON.parse(JSON.stringify(aoi));
-  const safeFeatures = JSON.parse(JSON.stringify(collected));
+  const safeLayers = JSON.parse(JSON.stringify(layersForExport));
+  const opts = { keepAttributes: !!$chkKeepAttrs?.checked };
 
   try {
-    const res = await window.backend.exportAoiKmz(safeAoi, safeFeatures, "aoi_export.kmz");
+    const res = await window.backend.exportAoiKmz(safeAoi, safeLayers, "aoi_export.kmz", opts);
     if (!res?.ok && !res?.canceled) alert("Export failed: " + (res?.error || "unknown"));
   } catch (err) {
     console.error("[exportAoiKmz]", err);
     alert("Export failed: " + (err?.message || err));
   }
 }
+
+
