@@ -10,8 +10,10 @@
   "dependencies": {
     "electron": "^31.3.0",
     "iconv-lite": "^0.6.3",
-    "mapshaper": "^0.6.61",
+    "jszip": "^3.10.1",
+    "mapshaper": "^0.6.110",
     "proj4": "^2.19.10",
-    "shapefile": "^0.6.6"
+    "shapefile": "^0.6.6",
+    "tokml": "^0.4.0"
   }
 }

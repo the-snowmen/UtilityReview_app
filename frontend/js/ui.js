@@ -190,7 +190,8 @@ async function onExportAoiKmz(e) {
   for (const id of state.order) {
     const st = state.layers.get(id);
     if (!st?.visible || !st?.source?.features) continue;
-    collected.features.push(...st.source.features);
+    // IMPORTANT: use concat (avoid spread -> call stack overflow)
+    collected.features = collected.features.concat(st.source.features);
   }
   if (!collected.features.length) { alert("No visible features to export."); return; }
 
