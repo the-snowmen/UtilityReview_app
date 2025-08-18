@@ -2,6 +2,9 @@
 import { map, sharedCanvas } from "./map.js";
 import { state, nextId, getById } from "./store.js";
 
+/** Track temporary identify/debug markers so we can remove them. */
+const activeMarkers = new Set();
+
 /** Normalize any GeoJSON-ish input to a FeatureCollection */
 function toFeatureCollection(gj) {
   if (!gj) return { type: "FeatureCollection", features: [] };
@@ -48,7 +51,9 @@ function buildLeafletLayer(source, st, interactive) {
       }),
     onEachFeature: (feature, lyr) => {
       if (!interactive) return;
-      lyr.on("click", (e) => {
+
+      // One handler we bind on the layer AND any child layers (for groups/collections)
+      const handler = (e) => {
         const detail = {
           layerId: st.id,
           layerName: st.name,
@@ -57,7 +62,10 @@ function buildLeafletLayer(source, st, interactive) {
           geomType: feature?.geometry?.type || null,
         };
         window.dispatchEvent(new CustomEvent("ur-identify", { detail }));
-      });
+      };
+
+      lyr.on("click", handler);
+      if (lyr.eachLayer) lyr.eachLayer(ch => ch.on && ch.on("click", handler));
     },
   });
 
@@ -71,7 +79,6 @@ export function addGeoJSONLayer(name, geojson, prependToTop = true) {
   const paneName = `pane-${id}`;
   map.createPane(paneName);
 
-  // Keep a sanitized deep copy for export/analysis (avoid circular refs)
   const source = JSON.parse(JSON.stringify(toFeatureCollection(geojson)));
 
   const st = {
@@ -169,11 +176,28 @@ export function setIdentifyMode(on) {
   syncMapOrder();
 }
 
-/** Debug: add a marker with popup showing coordinates */
+/** Add a marker with popup showing coordinates. Removes itself when popup closes. */
 export function addDebugMarker(lat, lng, label = "") {
-  const m = L.marker([lat, lng]).addTo(map);
-  const txt = label ? `${label}<br>${lat.toFixed(6)}, ${lng.toFixed(6)}` : `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
-  m.bindPopup(txt).openPopup();
+  const m = L.marker([lat, lng], { keyboard: false });
+  const txt = label
+    ? `${label}<br>${lat.toFixed(6)}, ${lng.toFixed(6)}`
+    : `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+
+  m.bindPopup(txt, { closeButton: true, autoClose: false });
+  m.on("popupclose", () => {
+    try { map.removeLayer(m); } catch {}
+    activeMarkers.delete(m);
+  });
+
+  m.addTo(map).openPopup();
+  activeMarkers.add(m);
   return m;
 }
 
+/** Remove all temporary markers. */
+export function clearDebugMarkers() {
+  for (const m of activeMarkers) {
+    try { map.removeLayer(m); } catch {}
+  }
+  activeMarkers.clear();
+}

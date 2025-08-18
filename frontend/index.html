@@ -11,9 +11,36 @@
                script-src 'self' https://unpkg.com;
                connect-src 'self' https:;
                font-src 'self' data: https:;" />
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
-    <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" crossorigin="" />
-    <link rel="stylesheet" href="./style.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" crossorigin="">
+    <link rel="stylesheet" href="./style.css">
+
+    <!-- Small overrides that fix close-behavior reliably -->
+    <style>
+      /* Ensure the hidden attribute actually hides our flex panel */
+      .info-panel[hidden] { display: none !important; }
+
+      /* Make sure Leaflet popups always accept clicks on the close button */
+      .leaflet-pane,
+      .leaflet-marker-pane,
+      .leaflet-popup-pane,
+      .leaflet-popup,
+      .leaflet-popup-close-button { pointer-events: auto; }
+
+      /* Coordinate HUD styling (top-right) */
+      .coord-hud {
+        position: fixed; top: 12px; right: 12px;
+        background: rgba(255,255,255,0.98);
+        border: 1px solid #e7eaf3; border-radius: 10px;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+        padding: 8px 10px;
+        font: 12px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        z-index: 1100; min-width: 210px;
+      }
+      .coord-hud .row { display:flex; justify-content:space-between; gap:10px; }
+      .coord-hud .lbl { color:#475569; font-weight:600; }
+      .coord-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    </style>
   </head>
   <body>
     <div id="map"></div>
@@ -52,12 +79,21 @@
       <ul id="layerList" class="layer-list"></ul>
     </div>
 
+    <!-- Identify: Feature info -->
     <div id="infoPanel" class="info-panel" hidden>
       <div class="info-header">
         <div id="infoTitle">Feature Info</div>
         <button id="infoClose" type="button" title="Close">✕</button>
       </div>
       <div id="infoBody" class="info-body"></div>
+    </div>
+
+    <!-- Coordinate HUD (top-right) -->
+    <div id="coordHud" class="coord-hud">
+      <div class="row"><span class="lbl">Cursor</span><span id="hudCursor" class="coord-mono">—</span></div>
+      <div class="row"><span class="lbl">Center</span><span id="hudCenter" class="coord-mono">—</span></div>
+      <div class="row"><span class="lbl">Zoom</span><span id="hudZoom" class="coord-mono">—</span></div>
+      <div class="row"><span class="lbl">CRS</span><span class="coord-mono">EPSG:4326</span></div>
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>

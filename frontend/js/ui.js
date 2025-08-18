@@ -1,5 +1,5 @@
 // frontend/js/ui.js
-import { switchBasemap, startAoiDraw, clearAoi, getAoiGeoJSON } from "./map.js";
+import { map, switchBasemap, startAoiDraw, clearAoi, getAoiGeoJSON } from "./map.js";
 import { state, setOrderFromDom, getById } from "./store.js";
 import {
   addGeoJSONLayer,
@@ -10,10 +10,11 @@ import {
   zoomToLayer,
   zoomToAllVisible,
   setIdentifyMode,
+  addDebugMarker,
+  clearDebugMarkers,
 } from "./layers.js";
-import { addDebugMarker } from "./layers.js";
 
-
+// --- DOM
 const $basemap      = document.getElementById("basemapSelect");
 const $btnImport    = document.getElementById("btnImport");
 const $btnFitAll    = document.getElementById("btnFitAll");
@@ -30,9 +31,13 @@ const $infoClose    = document.getElementById("infoClose");
 const $infoTitle    = document.getElementById("infoTitle");
 const $infoBody     = document.getElementById("infoBody");
 
-const $btnAddDebug = document.getElementById("btnAddDebug");
+// Coordinate HUD
+const $hudCursor    = document.getElementById("hudCursor");
+const $hudCenter    = document.getElementById("hudCenter");
+const $hudZoom      = document.getElementById("hudZoom");
 
 let identifyOn = false;
+let lastIdentifyMarker = null;
 
 // ---- Top controls
 $basemap?.addEventListener("change", () => switchBasemap($basemap.value));
@@ -55,9 +60,18 @@ $btnIdentify?.addEventListener("click", () => {
 window.addEventListener("ur-identify", (e) => {
   const d = e.detail || {};
   showInfo(d.layerName, d.properties, d.latlng);
+
+  // Keep only one identify marker at a time
+  if (lastIdentifyMarker) {
+    try { map.removeLayer(lastIdentifyMarker); } catch {}
+    lastIdentifyMarker = null;
+  }
+  if (d.latlng) {
+    lastIdentifyMarker = addDebugMarker(d.latlng.lat, d.latlng.lng, "Clicked");
+  }
 });
 
-// Close info panel via ✕ or Esc
+// --- Close info panel
 if ($infoClose) {
   $infoClose.setAttribute("type", "button");
   $infoClose.addEventListener("click", (e) => {
@@ -72,11 +86,14 @@ $info?.addEventListener("click", (e) => {
 }, { capture: true });
 window.addEventListener("keydown", (e) => { if (e.key === "Escape") hideInfo(); });
 
-// ---- Check the coordinate
-$btnAddDebug?.addEventListener("click", () => {
-  // Pick the current map center as debug point
-  const c = map.getCenter();  // requires `map` exported from map.js
-  addDebugMarker(c.lat, c.lng, "Map center");
+// Close on background map clicks, but ONLY when Identify is off,
+// and never when the click originated from a vector feature.
+map.on("click", (e) => {
+  if (identifyOn) return; // don’t fight Identify clicks
+  const tgt = e.originalEvent?.target;
+  const onVector = tgt?.closest?.(".leaflet-interactive");
+  if (onVector) return;   // came from a feature; ignore
+  hideInfo();
 });
 
 // ---- Import files
@@ -117,6 +134,10 @@ function escapeHtml(s) {
     .replaceAll(">","&gt;").replaceAll('"',"&quot;")
     .replaceAll("'","&#39;");
 }
+function fmtLL(latlng) {
+  if (!latlng) return "—";
+  return `${latlng.lat.toFixed(6)}, ${latlng.lng.toFixed(6)}`;
+}
 
 // ---- Build one layer list item (row)
 function buildLayerItem(id, st) {
@@ -131,7 +152,6 @@ function buildLayerItem(id, st) {
       <button class="zoom-btn" title="Zoom to this layer">⤢</button>
       <input type="checkbox" class="chk" ${st.visible ? "checked" : ""} />
       <button class="remove-btn" title="Remove layer">✕</button>
-      <button class="crs-btn" title="Set source CRS (EPSG)">CRS</button>
     </div>
     <div class="layer-controls">
       <span class="small-label">Color</span>
@@ -150,7 +170,6 @@ function buildLayerItem(id, st) {
   const removeBtn = li.querySelector(".remove-btn");
   const zoomBtn = li.querySelector(".zoom-btn");
   const dragHandle = li.querySelector(".drag-handle");
-  const crsBtn = li.querySelector(".crs-btn");
 
   chk.addEventListener("change", () => setVisibility(id, chk.checked));
 
@@ -181,28 +200,6 @@ function buildLayerItem(id, st) {
 
   zoomBtn.addEventListener("click", () => zoomToLayer(id));
 
-  // CRS override: re-ingest with explicit EPSG
-  crsBtn.addEventListener("click", async () => {
-    const guess = prompt("Enter source EPSG (e.g., 4326, 3857, 3421, 32143...). Leave blank to cancel.");
-    if (!guess) return;
-    const epsg = Number(guess);
-    if (!Number.isInteger(epsg)) { alert("Invalid EPSG."); return; }
-
-    const sel = await window.backend.selectFiles();
-    const p = Array.isArray(sel) ? sel[0] : sel?.paths?.[0];
-    if (!p) return;
-
-    const res = await window.backend.ingestFile(p, epsg);
-    if (!res?.ok || !res.geojson) { alert("Re-ingest failed."); return; }
-
-    // Replace layer’s source and rebuild
-    applyLayerReplacement(id, {
-      ...st,
-      source: res.geojson,
-      propKeys: Object.keys(res.geojson?.features?.[0]?.properties || {}),
-    });
-  });
-
   // --- Drag reordering (handle-only)
   dragHandle.setAttribute("draggable", "true");
   dragHandle.addEventListener("dragstart", (e) => {
@@ -217,22 +214,6 @@ function buildLayerItem(id, st) {
   });
 
   return li;
-}
-
-// Replace a layer keeping name/style/visibility; rebuild sidebar
-function applyLayerReplacement(oldId, newState) {
-  const visible = newState.visible;
-  const name = newState.name, color = newState.color, weight = newState.weight, opacity = newState.opacity;
-
-  removeLayer(oldId);
-  const newId = addGeoJSONLayer(name, newState.source, true);
-  const nst = getById(newId);
-  nst.color = color; nst.weight = weight; nst.opacity = opacity; nst.visible = visible;
-  applyLayerStyle(newId);
-  if (!visible) setVisibility(newId, false);
-
-  rebuildList();
-  syncMapOrder();
 }
 
 // ---- One set of DnD handlers on the list
@@ -325,4 +306,27 @@ function showInfo(title, props, latlng) {
   }
   $info?.removeAttribute("hidden");
 }
-function hideInfo() { $info?.setAttribute("hidden", "true"); }
+
+function hideInfo() {
+  $info?.setAttribute("hidden", "true");
+  if (lastIdentifyMarker) {
+    try { map.removeLayer(lastIdentifyMarker); } catch {}
+    lastIdentifyMarker = null;
+  }
+  clearDebugMarkers();
+}
+
+// ---- Coordinate HUD wiring
+function updateHudCenter() {
+  const c = map.getCenter();
+  if ($hudCenter) $hudCenter.textContent = fmtLL(c);
+  if ($hudZoom) $hudZoom.textContent = String(map.getZoom());
+}
+function updateHudCursor(e) {
+  if (!e?.latlng) return;
+  if ($hudCursor) $hudCursor.textContent = fmtLL(e.latlng);
+}
+
+updateHudCenter();
+map.on("moveend zoomend", updateHudCenter);
+map.on("mousemove", updateHudCursor);
