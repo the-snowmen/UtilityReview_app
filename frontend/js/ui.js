@@ -12,6 +12,8 @@ import {
   setIdentifyMode,
   addDebugMarker,
   clearDebugMarkers,
+  setCategoricalStyle,
+  clearCategoricalStyle,
 } from "./layers.js";
 
 // --- DOM
@@ -139,7 +141,7 @@ function fmtLL(latlng) {
   return `${latlng.lat.toFixed(6)}, ${latlng.lng.toFixed(6)}`;
 }
 
-// ---- Build one layer list item (row)
+// ---- Build one layer list item (row) — now with "Style" editor
 function buildLayerItem(id, st) {
   const li = document.createElement("li");
   li.className = "layer-item";
@@ -152,6 +154,7 @@ function buildLayerItem(id, st) {
       <button class="zoom-btn" title="Zoom to this layer">⤢</button>
       <input type="checkbox" class="chk" ${st.visible ? "checked" : ""} />
       <button class="remove-btn" title="Remove layer">✕</button>
+      <button class="style-btn" title="Style by attribute">Style</button>
     </div>
     <div class="layer-controls">
       <span class="small-label">Color</span>
@@ -160,6 +163,21 @@ function buildLayerItem(id, st) {
       <input type="number" class="num weight-num" value="${st.weight}" min="0" max="20">
       <span class="small-label">Opacity</span>
       <input type="number" class="num opacity-num" value="${st.opacity}" min="0" max="1" step="0.05">
+    </div>
+    <div class="style-panel" hidden style="margin:8px 0 0 0;padding:8px;border:1px solid #e5e7eb;border-radius:8px;background:#f8fafc">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <span class="small-label" style="min-width:60px">Field</span>
+        <select class="style-field" style="padding:4px 6px;border:1px solid #d0d7e2;border-radius:6px">
+          <option value="">(choose)</option>
+          ${st.propKeys.map(k => `<option value="${escapeHtml(k)}"${st.styleBy?.field===k?' selected':''}>${escapeHtml(k)}</option>`).join("")}
+        </select>
+        <button class="style-scan" title="Scan values">Scan</button>
+        <button class="style-clear" title="Clear style">Clear</button>
+      </div>
+      <div class="style-mapping" style="margin-top:8px;display:grid;gap:6px"></div>
+      <div class="style-actions" style="margin-top:8px;display:flex;gap:8px">
+        <button class="style-apply">Apply</button>
+      </div>
     </div>
   `;
 
@@ -170,12 +188,22 @@ function buildLayerItem(id, st) {
   const removeBtn = li.querySelector(".remove-btn");
   const zoomBtn = li.querySelector(".zoom-btn");
   const dragHandle = li.querySelector(".drag-handle");
+  const styleBtn = li.querySelector(".style-btn");
 
+  const panel = li.querySelector(".style-panel");
+  const selField = li.querySelector(".style-field");
+  const btnScan = li.querySelector(".style-scan");
+  const btnClear = li.querySelector(".style-clear");
+  const mapWrap = li.querySelector(".style-mapping");
+  const btnApply = li.querySelector(".style-apply");
+
+  // --- basic style controls
   chk.addEventListener("change", () => setVisibility(id, chk.checked));
 
   colorInput.addEventListener("input", () => {
     st.color = colorInput.value;
-    applyLayerStyle(id);
+    // if categorical styling is *not* active, reflect immediately
+    if (!st.styleBy?.field) applyLayerStyle(id);
   });
 
   weightInput.addEventListener("input", () => {
@@ -213,7 +241,109 @@ function buildLayerItem(id, st) {
     draggingId = null;
   });
 
+  // --- Categorical styling UI
+
+  styleBtn.addEventListener("click", () => {
+    const on = panel.hasAttribute("hidden");
+    panel.toggleAttribute("hidden", !on);
+    if (on && selField.value) {
+      renderMappingRows();
+    }
+  });
+
+  btnScan.addEventListener("click", () => {
+    if (!selField.value) { alert("Choose a field first."); return; }
+    renderMappingRows(true);
+  });
+
+  btnClear.addEventListener("click", () => {
+    clearCategoricalStyle(id);
+    colorInput.value = st.color; // back to base color
+    panel.setAttribute("hidden", "true");
+  });
+
+  btnApply.addEventListener("click", () => {
+    const field = selField.value;
+    if (!field) { alert("Choose a field."); return; }
+    const { rules, def } = readMappingFromDom();
+    setCategoricalStyle(id, field, rules, def || st.color);
+  });
+
+  // helpers
+  function renderMappingRows(rescan = false) {
+    const field = selField.value;
+    const stNow = getById(id);
+    const rulesExisting = (stNow.styleBy && stNow.styleBy.field === field) ? (stNow.styleBy.rules || {}) : {};
+
+    const values = uniqueValuesForField(stNow.source, field, 2000, 20); // sample up to 2000, cap unique 20
+    mapWrap.innerHTML = "";
+
+    // default row
+    const defColor = (stNow.styleBy && stNow.styleBy.field === field && stNow.styleBy.defaultColor)
+      ? stNow.styleBy.defaultColor
+      : stNow.color;
+    const defRow = document.createElement("div");
+    defRow.innerHTML = `
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="small-label" style="min-width:60px">Default</span>
+        <input type="color" class="map-default" value="${defColor}">
+      </div>`;
+    mapWrap.appendChild(defRow);
+
+    // value rows
+    for (const v of values) {
+      const key = String(v);
+      const preset = rescan ? null : rulesExisting[key];
+      const color = preset || randomPastelFor(key);
+      const row = document.createElement("div");
+      row.innerHTML = `
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="small-label" style="min-width:60px;max-width:180px;overflow:hidden;text-overflow:ellipsis" title="${escapeHtml(key)}">${escapeHtml(key)}</span>
+          <input type="color" class="map-color" data-key="${escapeHtml(key)}" value="${color}">
+        </div>`;
+      mapWrap.appendChild(row);
+    }
+  }
+
+  function readMappingFromDom() {
+    const colors = mapWrap.querySelectorAll(".map-color");
+    const def = mapWrap.querySelector(".map-default")?.value || null;
+    const rules = {};
+    colors.forEach(inp => { rules[inp.dataset.key] = inp.value; });
+    return { rules, def };
+  }
+
   return li;
+}
+
+// ---- helpers for categorical style
+function uniqueValuesForField(fc, field, sampleLimit = 2000, uniqueCap = 20) {
+  const vals = new Set();
+  let count = 0;
+  for (const f of fc?.features || []) {
+    if (count++ > sampleLimit) break;
+    const v = f?.properties?.[field];
+    if (v === undefined || v === null) continue;
+    vals.add(String(v));
+    if (vals.size >= uniqueCap) break;
+  }
+  return [...vals].sort();
+}
+function randomPastelFor(s) {
+  let h = 0;
+  for (let i=0;i<s.length;i++) h = (h*33 + s.charCodeAt(i)) >>> 0;
+  const hue = h % 360;
+  return hslToHex(hue, 65, 60);
+}
+function hslToHex(h, s, l) {
+  s/=100; l/=100;
+  const c=(1-Math.abs(2*l-1))*s, x=c*(1-Math.abs((h/60)%2-1)), m=l-c/2;
+  let r=0,g=0,b=0;
+  if (0<=h&&h<60){r=c;g=x;} else if (60<=h&&h<120){r=x;g=c;}
+  else if (120<=h&&h<180){g=c;b=x;} else if (180<=h&&h<240){g=x;b=c;}
+  else if (240<=h&&h<300){r=x;b=c;} else {r=c;b=x;}
+  const toHex = v => (`0${Math.round((v+m)*255).toString(16)}`).slice(-2);
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
 }
 
 // ---- One set of DnD handlers on the list
@@ -271,7 +401,7 @@ async function onExportAoiKmz(e) {
 
     layersForExport.push({
       name: st.name,
-      style: { color: st.color, weight: st.weight, opacity: st.opacity },
+      style: { color: st.color, weight: st.weight, opacity: st.opacity, styleBy: st.styleBy || null },
       features: st.source,  // FeatureCollection
     });
   }

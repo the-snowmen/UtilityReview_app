@@ -21,6 +21,18 @@ function getPropKeys(geojson) {
   return f ? Object.keys(f.properties || {}) : [];
 }
 
+/** Pick a color for a feature based on st.styleBy (if present) */
+function colorForFeature(st, feature) {
+  const base = st.color || "#ff3333";
+  const styleBy = st.styleBy;
+  if (!styleBy?.field) return base;
+
+  const val = feature?.properties?.[styleBy.field];
+  const rules = styleBy.rules || {};
+  const match = val != null && rules[String(val)];
+  return match || styleBy.defaultColor || base;
+}
+
 /** Build (or rebuild) a Leaflet GeoJSON layer with an interactivity flag */
 function buildLeafletLayer(source, st, interactive) {
   if (st.layer) {
@@ -29,30 +41,34 @@ function buildLeafletLayer(source, st, interactive) {
   }
   const paneName = st.paneName;
 
+  const styleFn = (feature) => {
+    const color = colorForFeature(st, feature);
+    return {
+      color,
+      weight: st.weight,
+      opacity: st.opacity,
+      fillColor: color,
+      fillOpacity: Math.max(0, Math.min(1, st.opacity * 0.5)),
+    };
+  };
+
   const layer = L.geoJSON(source, {
     pane: paneName,
     renderer: sharedCanvas,
     interactive, // only active during Identify mode
-    style: () => ({
-      color: st.color,
-      weight: st.weight,
-      opacity: st.opacity,
-      fillColor: st.color,
-      fillOpacity: Math.max(0, Math.min(1, st.opacity * 0.5)),
-    }),
-    pointToLayer: (_f, latlng) =>
+    style: styleFn,
+    pointToLayer: (feature, latlng) =>
       L.circleMarker(latlng, {
         pane: paneName,
         interactive,
         radius: Math.max(3, st.weight + 1),
-        color: st.color,
+        color: colorForFeature(st, feature),
         opacity: st.opacity,
+        fillColor: colorForFeature(st, feature),
         fillOpacity: Math.max(0, Math.min(1, st.opacity * 0.5)),
       }),
     onEachFeature: (feature, lyr) => {
       if (!interactive) return;
-
-      // One handler we bind on the layer AND any child layers (for groups/collections)
       const handler = (e) => {
         const detail = {
           layerId: st.id,
@@ -63,12 +79,12 @@ function buildLeafletLayer(source, st, interactive) {
         };
         window.dispatchEvent(new CustomEvent("ur-identify", { detail }));
       };
-
       lyr.on("click", handler);
       if (lyr.eachLayer) lyr.eachLayer(ch => ch.on && ch.on("click", handler));
     },
   });
 
+  st._styleFn = styleFn; // keep for later setStyle calls
   st.layer = layer;
   if (st.visible !== false) layer.addTo(map);
   return layer;
@@ -93,6 +109,7 @@ export function addGeoJSONLayer(name, geojson, prependToTop = true) {
     layer: null,
     source,                 // stable clean copy used for export & rebuilds
     interactive: false,     // default off; Identify toggles it
+    styleBy: null,          // { field, rules: {value:color}, defaultColor }
   };
 
   buildLeafletLayer(source, st, st.interactive);
@@ -117,11 +134,23 @@ export function removeLayer(id) {
 
 export function applyLayerStyle(id) {
   const st = getById(id); if (!st) return;
-  const stroke = { color: st.color, weight: st.weight, opacity: st.opacity };
-  const fill = { fillColor: st.color, fillOpacity: Math.max(0, Math.min(1, st.opacity * 0.5)) };
-  st.layer.setStyle?.({ ...stroke, ...fill });
+  const styleFn = (f) => {
+    const color = colorForFeature(st, f);
+    return {
+      color,
+      weight: st.weight,
+      opacity: st.opacity,
+      fillColor: color,
+      fillOpacity: Math.max(0, Math.min(1, st.opacity * 0.5)),
+    };
+  };
+  st._styleFn = styleFn;
+  st.layer.setStyle?.(styleFn);
   st.layer.eachLayer?.(l => {
-    if (l.setStyle) l.setStyle({ ...stroke, ...fill });
+    // circle markers need manual updates
+    if (l.setStyle && l.feature) {
+      l.setStyle(styleFn(l.feature));
+    }
     if (l.setRadius) l.setRadius(Math.max(3, st.weight + 1));
   });
 }
@@ -200,4 +229,31 @@ export function clearDebugMarkers() {
     try { map.removeLayer(m); } catch {}
   }
   activeMarkers.clear();
+}
+
+/** === New: Categorical styling API === **/
+
+/**
+ * Set per-category colors for a given layer ID.
+ * @param {number} id
+ * @param {string} field  - attribute/column name
+ * @param {Record<string,string>} rules - value->color map
+ * @param {string} defaultColor - fallback color
+ */
+export function setCategoricalStyle(id, field, rules, defaultColor) {
+  const st = getById(id); if (!st) return;
+  st.styleBy = { field, rules: rules || {}, defaultColor: defaultColor || st.color };
+  // Rebuild to refresh point colors too
+  buildLeafletLayer(st.source, st, st.interactive);
+  if (!st.visible) { try { map.removeLayer(st.layer); } catch {} }
+  syncMapOrder();
+}
+
+/** Clear the categorical styling and go back to a single color */
+export function clearCategoricalStyle(id) {
+  const st = getById(id); if (!st) return;
+  st.styleBy = null;
+  buildLeafletLayer(st.source, st, st.interactive);
+  if (!st.visible) { try { map.removeLayer(st.layer); } catch {} }
+  syncMapOrder();
 }
