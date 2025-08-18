@@ -18,6 +18,54 @@ function getPropKeys(geojson) {
   return f ? Object.keys(f.properties || {}) : [];
 }
 
+/** Build (or rebuild) a Leaflet GeoJSON layer with an interactivity flag */
+function buildLeafletLayer(source, st, interactive) {
+  if (st.layer) {
+    try { map.removeLayer(st.layer); } catch {}
+    st.layer = null;
+  }
+  const paneName = st.paneName;
+
+  const layer = L.geoJSON(source, {
+    pane: paneName,
+    renderer: sharedCanvas,
+    interactive, // only active during Identify mode
+    style: () => ({
+      color: st.color,
+      weight: st.weight,
+      opacity: st.opacity,
+      fillColor: st.color,
+      fillOpacity: Math.max(0, Math.min(1, st.opacity * 0.5)),
+    }),
+    pointToLayer: (_f, latlng) =>
+      L.circleMarker(latlng, {
+        pane: paneName,
+        interactive,
+        radius: Math.max(3, st.weight + 1),
+        color: st.color,
+        opacity: st.opacity,
+        fillOpacity: Math.max(0, Math.min(1, st.opacity * 0.5)),
+      }),
+    onEachFeature: (feature, lyr) => {
+      if (!interactive) return;
+      lyr.on("click", (e) => {
+        const detail = {
+          layerId: st.id,
+          layerName: st.name,
+          latlng: e.latlng,
+          properties: feature?.properties || {},
+          geomType: feature?.geometry?.type || null,
+        };
+        window.dispatchEvent(new CustomEvent("ur-identify", { detail }));
+      });
+    },
+  });
+
+  st.layer = layer;
+  if (st.visible !== false) layer.addTo(map);
+  return layer;
+}
+
 export function addGeoJSONLayer(name, geojson, prependToTop = true) {
   const id = nextId();
   const paneName = `pane-${id}`;
@@ -36,37 +84,17 @@ export function addGeoJSONLayer(name, geojson, prependToTop = true) {
     propKeys: getPropKeys(source),
     paneName,
     layer: null,
-    source,                 // <- stable clean copy
+    source,                 // stable clean copy used for export & rebuilds
+    interactive: false,     // default off; Identify toggles it
   };
 
-  const leafletLayer = L.geoJSON(source, {
-    pane: paneName,
-    renderer: sharedCanvas,
-    interactive: false,
-    style: () => ({
-      color: st.color,
-      weight: st.weight,
-      opacity: st.opacity,
-      fillColor: st.color,
-      fillOpacity: Math.max(0, Math.min(1, st.opacity * 0.5)),
-    }),
-    pointToLayer: (_f, latlng) =>
-      L.circleMarker(latlng, {
-        pane: paneName,
-        interactive: false,
-        radius: Math.max(3, st.weight + 1),
-        color: st.color,
-        opacity: st.opacity,
-        fillOpacity: Math.max(0, Math.min(1, st.opacity * 0.5)),
-      }),
-  }).addTo(map);
+  buildLeafletLayer(source, st, st.interactive);
 
-  st.layer = leafletLayer;
   state.layers.set(id, st);
   if (prependToTop) state.order.unshift(id); else state.order.push(id);
   syncMapOrder();
 
-  const b = leafletLayer.getBounds?.();
+  const b = st.layer.getBounds?.();
   if (b?.isValid()) map.fitBounds(b, { padding: [20, 20] });
 
   return id;
@@ -74,7 +102,7 @@ export function addGeoJSONLayer(name, geojson, prependToTop = true) {
 
 export function removeLayer(id) {
   const st = getById(id); if (!st) return;
-  map.removeLayer(st.layer);
+  try { map.removeLayer(st.layer); } catch {}
   state.layers.delete(id);
   state.order = state.order.filter(x => x !== id);
   syncMapOrder();
@@ -94,7 +122,11 @@ export function applyLayerStyle(id) {
 export function setVisibility(id, visible) {
   const st = getById(id); if (!st) return;
   st.visible = visible;
-  if (visible) st.layer.addTo(map); else map.removeLayer(st.layer);
+  if (visible) {
+    st.layer?.addTo(map);
+  } else {
+    try { map.removeLayer(st.layer); } catch {}
+  }
   syncMapOrder();
 }
 
@@ -123,3 +155,25 @@ export function zoomToAllVisible() {
   }
   if (hasAny) map.fitBounds(bounds, { padding: [24, 24] });
 }
+
+/** Toggle Identify mode by rebuilding layers with interactivity on/off */
+export function setIdentifyMode(on) {
+  for (const id of state.order) {
+    const st = getById(id); if (!st) continue;
+    st.interactive = !!on;
+    buildLeafletLayer(st.source, st, st.interactive);
+    if (!st.visible) {
+      try { map.removeLayer(st.layer); } catch {}
+    }
+  }
+  syncMapOrder();
+}
+
+/** Debug: add a marker with popup showing coordinates */
+export function addDebugMarker(lat, lng, label = "") {
+  const m = L.marker([lat, lng]).addTo(map);
+  const txt = label ? `${label}<br>${lat.toFixed(6)}, ${lng.toFixed(6)}` : `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+  m.bindPopup(txt).openPopup();
+  return m;
+}
+

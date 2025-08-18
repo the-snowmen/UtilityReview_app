@@ -34,6 +34,7 @@
         <div class="header-actions">
           <button id="btnFitAll" title="Zoom to all visible layers">Fit All</button>
           <button id="btnImport" title="Import GIS files">+ Import</button>
+          <button id="btnIdentify" title="Click features to view attributes">Identify</button>
         </div>
       </div>
 
@@ -49,6 +50,14 @@
       </div>
 
       <ul id="layerList" class="layer-list"></ul>
+    </div>
+
+    <div id="infoPanel" class="info-panel" hidden>
+      <div class="info-header">
+        <div id="infoTitle">Feature Info</div>
+        <button id="infoClose" type="button" title="Close">✕</button>
+      </div>
+      <div id="infoBody" class="info-body"></div>
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>

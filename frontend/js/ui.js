@@ -9,18 +9,30 @@ import {
   syncMapOrder,
   zoomToLayer,
   zoomToAllVisible,
+  setIdentifyMode,
 } from "./layers.js";
+import { addDebugMarker } from "./layers.js";
 
-const $basemap = document.getElementById("basemapSelect");
-const $btnImport = document.getElementById("btnImport");
-const $btnFitAll = document.getElementById("btnFitAll");
-const $layerList = document.getElementById("layerList");
 
-const $btnDrawAoi = document.getElementById("btnDrawAoi");
-const $btnClearAoi = document.getElementById("btnClearAoi");
+const $basemap      = document.getElementById("basemapSelect");
+const $btnImport    = document.getElementById("btnImport");
+const $btnFitAll    = document.getElementById("btnFitAll");
+const $layerList    = document.getElementById("layerList");
+
+const $btnDrawAoi   = document.getElementById("btnDrawAoi");
+const $btnClearAoi  = document.getElementById("btnClearAoi");
 const $btnExportAoi = document.getElementById("btnExportAoi");
 const $chkKeepAttrs = document.getElementById("chkKeepAttrs");
 
+const $btnIdentify  = document.getElementById("btnIdentify");
+const $info         = document.getElementById("infoPanel");
+const $infoClose    = document.getElementById("infoClose");
+const $infoTitle    = document.getElementById("infoTitle");
+const $infoBody     = document.getElementById("infoBody");
+
+const $btnAddDebug = document.getElementById("btnAddDebug");
+
+let identifyOn = false;
 
 // ---- Top controls
 $basemap?.addEventListener("change", () => switchBasemap($basemap.value));
@@ -31,8 +43,45 @@ $btnDrawAoi?.addEventListener("click", () => startAoiDraw());
 $btnClearAoi?.addEventListener("click", () => clearAoi());
 $btnExportAoi?.addEventListener("click", onExportAoiKmz);
 
+// ---- Identify toggle
+$btnIdentify?.addEventListener("click", () => {
+  identifyOn = !identifyOn;
+  $btnIdentify.classList.toggle("active", identifyOn);
+  setIdentifyMode(identifyOn);
+  if (!identifyOn) hideInfo();
+});
+
+// Feature click events from layers.js
+window.addEventListener("ur-identify", (e) => {
+  const d = e.detail || {};
+  showInfo(d.layerName, d.properties, d.latlng);
+});
+
+// Close info panel via ✕ or Esc
+if ($infoClose) {
+  $infoClose.setAttribute("type", "button");
+  $infoClose.addEventListener("click", (e) => {
+    e.preventDefault(); e.stopPropagation(); hideInfo();
+  }, { capture: true });
+}
+$info?.addEventListener("click", (e) => {
+  const t = e.target;
+  if (t && (t.id === "infoClose" || t.closest?.("#infoClose"))) {
+    e.preventDefault(); e.stopPropagation(); hideInfo();
+  }
+}, { capture: true });
+window.addEventListener("keydown", (e) => { if (e.key === "Escape") hideInfo(); });
+
+// ---- Check the coordinate
+$btnAddDebug?.addEventListener("click", () => {
+  // Pick the current map center as debug point
+  const c = map.getCenter();  // requires `map` exported from map.js
+  addDebugMarker(c.lat, c.lng, "Map center");
+});
+
 // ---- Import files
 $btnImport?.addEventListener("click", importFiles);
+
 async function importFiles() {
   if (!window.backend?.selectFiles || !window.backend?.ingestFile) {
     alert("IPC not available. Check preload/electron wiring.");
@@ -62,6 +111,12 @@ function clamp(n, min, max, fallback = min) {
   if (Number.isNaN(n)) return fallback;
   return Math.max(min, Math.min(max, n));
 }
+function escapeHtml(s) {
+  return String(s ?? "")
+    .replaceAll("&","&amp;").replaceAll("<","&lt;")
+    .replaceAll(">","&gt;").replaceAll('"',"&quot;")
+    .replaceAll("'","&#39;");
+}
 
 // ---- Build one layer list item (row)
 function buildLayerItem(id, st) {
@@ -72,10 +127,11 @@ function buildLayerItem(id, st) {
   li.innerHTML = `
     <div class="layer-top">
       <button class="drag-handle" title="Drag to reorder">☰</button>
-      <div class="layer-name" title="${st.name}">${st.name}</div>
+      <div class="layer-name" title="${escapeHtml(st.name)}">${escapeHtml(st.name)}</div>
       <button class="zoom-btn" title="Zoom to this layer">⤢</button>
       <input type="checkbox" class="chk" ${st.visible ? "checked" : ""} />
       <button class="remove-btn" title="Remove layer">✕</button>
+      <button class="crs-btn" title="Set source CRS (EPSG)">CRS</button>
     </div>
     <div class="layer-controls">
       <span class="small-label">Color</span>
@@ -94,6 +150,7 @@ function buildLayerItem(id, st) {
   const removeBtn = li.querySelector(".remove-btn");
   const zoomBtn = li.querySelector(".zoom-btn");
   const dragHandle = li.querySelector(".drag-handle");
+  const crsBtn = li.querySelector(".crs-btn");
 
   chk.addEventListener("change", () => setVisibility(id, chk.checked));
 
@@ -124,6 +181,28 @@ function buildLayerItem(id, st) {
 
   zoomBtn.addEventListener("click", () => zoomToLayer(id));
 
+  // CRS override: re-ingest with explicit EPSG
+  crsBtn.addEventListener("click", async () => {
+    const guess = prompt("Enter source EPSG (e.g., 4326, 3857, 3421, 32143...). Leave blank to cancel.");
+    if (!guess) return;
+    const epsg = Number(guess);
+    if (!Number.isInteger(epsg)) { alert("Invalid EPSG."); return; }
+
+    const sel = await window.backend.selectFiles();
+    const p = Array.isArray(sel) ? sel[0] : sel?.paths?.[0];
+    if (!p) return;
+
+    const res = await window.backend.ingestFile(p, epsg);
+    if (!res?.ok || !res.geojson) { alert("Re-ingest failed."); return; }
+
+    // Replace layer’s source and rebuild
+    applyLayerReplacement(id, {
+      ...st,
+      source: res.geojson,
+      propKeys: Object.keys(res.geojson?.features?.[0]?.properties || {}),
+    });
+  });
+
   // --- Drag reordering (handle-only)
   dragHandle.setAttribute("draggable", "true");
   dragHandle.addEventListener("dragstart", (e) => {
@@ -138,6 +217,22 @@ function buildLayerItem(id, st) {
   });
 
   return li;
+}
+
+// Replace a layer keeping name/style/visibility; rebuild sidebar
+function applyLayerReplacement(oldId, newState) {
+  const visible = newState.visible;
+  const name = newState.name, color = newState.color, weight = newState.weight, opacity = newState.opacity;
+
+  removeLayer(oldId);
+  const newId = addGeoJSONLayer(name, newState.source, true);
+  const nst = getById(newId);
+  nst.color = color; nst.weight = weight; nst.opacity = opacity; nst.visible = visible;
+  applyLayerStyle(newId);
+  if (!visible) setVisibility(newId, false);
+
+  rebuildList();
+  syncMapOrder();
 }
 
 // ---- One set of DnD handlers on the list
@@ -203,7 +298,6 @@ async function onExportAoiKmz(e) {
 
   if (!window.backend?.exportAoiKmz) { alert("Export API missing from preload."); return; }
 
-  // Deep-clone payloads (IPC structured clone safety)
   const safeAoi = JSON.parse(JSON.stringify(aoi));
   const safeLayers = JSON.parse(JSON.stringify(layersForExport));
   const opts = { keepAttributes: !!$chkKeepAttrs?.checked };
@@ -217,4 +311,18 @@ async function onExportAoiKmz(e) {
   }
 }
 
-
+// ---- Identify info panel helpers
+function showInfo(title, props, latlng) {
+  if ($infoTitle) $infoTitle.textContent = title || "Feature Info";
+  if ($infoBody) {
+    const rows = Object.entries(props || {}).map(([k, v]) =>
+      `<tr><th>${escapeHtml(k)}</th><td>${escapeHtml(v)}</td></tr>`
+    ).join("");
+    const loc = latlng ? `<div style="margin:6px 0 8px 0;color:#64748b">
+      <small>Clicked at ${latlng.lat.toFixed(6)}, ${latlng.lng.toFixed(6)}</small>
+    </div>` : "";
+    $infoBody.innerHTML = loc + (rows ? `<table>${rows}</table>` : "<em>No attributes</em>");
+  }
+  $info?.removeAttribute("hidden");
+}
+function hideInfo() { $info?.setAttribute("hidden", "true"); }

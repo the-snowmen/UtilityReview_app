@@ -13,24 +13,38 @@ html, body { height: 100%; margin: 0; }
   background: #f5f7fb; padding: 10px 12px; border-bottom: 1px solid #e7eaf3;
 }
 .header-actions { display:flex; gap:8px; }
-#btnImport, #btnFitAll { border:none; background:#2563eb; color:white; font-weight:600; padding:6px 10px; border-radius:8px; cursor:pointer; }
+#btnImport, #btnFitAll {
+  border:none; background:#2563eb; color:white; font-weight:600; padding:6px 10px; border-radius:8px; cursor:pointer;
+}
 #btnFitAll { background:#4f46e5; }
 #btnImport:hover, #btnFitAll:hover { filter: brightness(0.95); }
 
-.aoi-controls { display:flex; gap:8px; align-items:center; padding:8px 10px; border-bottom: 1px solid #eef2f7; background:#fff; }
-#btnDrawAoi, #btnClearAoi, #btnExportAoi { border:none; background:#0f766e; color:white; font-weight:600; padding:6px 10px; border-radius:8px; cursor:pointer; }
+/* Identify button */
+#btnIdentify { border:none; background:#0ea5e9; color:white; font-weight:600; padding:6px 10px; border-radius:8px; cursor:pointer; }
+#btnIdentify.active { background:#0284c7; }
+#btnIdentify:hover { filter: brightness(0.95); }
+
+.aoi-controls {
+  display:flex; gap:8px; align-items:center; padding:8px 10px; border-bottom: 1px solid #eef2f7; background:#fff;
+}
+#btnDrawAoi, #btnClearAoi, #btnExportAoi {
+  border:none; background:#0f766e; color:white; font-weight:600; padding:6px 10px; border-radius:8px; cursor:pointer;
+}
 #btnClearAoi { background:#9ca3af; }
 #btnExportAoi { background:#16a34a; }
 #btnDrawAoi:hover, #btnClearAoi:hover, #btnExportAoi:hover { filter: brightness(0.95); }
 
-.layer-list { list-style:none; margin:0; padding:8px 10px 12px 10px; overflow:auto; font:13px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+.layer-list { list-style:none; margin:0; padding:8px 10px 12px 10px; overflow:auto;
+  font:13px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
 .layer-item { border-radius:10px; padding:6px 8px; }
 .layer-item:hover { background:#f8fafc; }
-.layer-top { display:grid; grid-template-columns: auto 1fr auto auto auto; gap:8px; align-items:center; }
+.layer-top { display:grid; grid-template-columns: auto 1fr auto auto auto auto; gap:8px; align-items:center; }
 .drag-handle{border:none;background:transparent;color:#64748b;cursor:grab;padding:0 4px;font-size:18px;line-height:1}
 .drag-handle:active{cursor:grabbing}
 .zoom-btn{border:none;background:#eef2ff;border-radius:6px;padding:4px 6px;cursor:pointer}
 .zoom-btn:hover{filter:brightness(0.95)}
+.crs-btn{border:none;background:#e2e8f0;border-radius:6px;padding:4px 8px;cursor:pointer;font-weight:600;color:#334155}
+.crs-btn:hover{filter:brightness(0.95)}
 
 .num{ width: 72px; padding: 2px 6px; border:1px solid #d0d7e2; border-radius:6px; }
 .layer-name { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -42,3 +56,33 @@ html, body { height: 100%; margin: 0; }
 .leaflet-control-zoom { margin: 0 12px 12px 0; }
 .leaflet-bottom.leaflet-right { pointer-events: none; }
 .leaflet-control { pointer-events: auto; }
+
+/* --- Feature Info panel (Identify) --- */
+.info-panel {
+  position: fixed; right: 12px; bottom: 12px; width: 360px; max-height: 50%;
+  background: #fff; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+  overflow: hidden; z-index: 1200; display: flex; flex-direction: column;
+  border: 1px solid #e7eaf3;
+}
+.info-header {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:8px 10px; background:#f5f7fb; border-bottom:1px solid #e7eaf3;
+  font:600 14px system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+}
+#infoClose {
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  font-size: 16px;
+  line-height: 1;
+  padding: 4px 6px;
+  pointer-events: auto;
+}
+.info-body {
+  padding:10px; overflow:auto; font:13px system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+}
+.info-body table { width:100%; border-collapse:collapse; }
+.info-body th, .info-body td {
+  text-align:left; padding:4px 6px; border-bottom:1px solid #eef2f7; vertical-align:top;
+}
+.info-body th { width:38%; color:#475569; font-weight:600; }
