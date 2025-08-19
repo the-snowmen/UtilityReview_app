@@ -3,6 +3,25 @@ const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
 const path = require("path");
 const { ingestAny } = require("../backend/ingest/index.js");
 
+// --- DEV: auto reload (electron-reload) -------------------------------
+// Enabled when the app is NOT packaged (works for `npm start` or `npm run dev`)
+if (!app.isPackaged) {
+  try {
+    const projectRoot = path.join(__dirname, ".."); // watch the repo root
+    require("electron-reload")(projectRoot, {
+      // fully restart Electron when main-process files change
+      hardResetMethod: "exit",
+      awaitWriteFinish: true,
+      // ignore heavy & noisy folders/files
+      ignored: /(^|[/\\])\..|node_modules|dist|out|build|\.git|\.cache/,
+    });
+    console.log("[dev] electron-reload active →", projectRoot);
+  } catch (e) {
+    console.warn("[dev] electron-reload not active:", e?.message || e);
+  }
+}
+// ---------------------------------------------------------------------
+
 let win;
 
 function createWindow() {
@@ -29,6 +48,13 @@ function createWindow() {
     shell.openExternal(url);
     return { action: "deny" };
   });
+
+  // // Auto-open DevTools in dev (not in packaged builds)
+  // if (!app.isPackaged) {
+  //   win.webContents.once("dom-ready", () => {
+  //     try { win.webContents.openDevTools({ mode: "detach" }); } catch {}
+  //   });
+  // }
 }
 
 app.whenReady().then(createWindow);
@@ -66,8 +92,6 @@ ipcMain.handle("ingest-shapefile", async (evt, payload) =>
 );
 
 // ---------- IPC: Export AOI -> KMZ ----------
-// Accepts both the old payload ({aoi, features, suggestedName})
-// and the new payload ({aoi, data, suggestedName, opts:{keepAttributes}})
 ipcMain.handle("export-aoi-kmz", async (_evt, payload = {}) => {
   try {
     const {
@@ -104,7 +128,7 @@ ipcMain.handle("export-aoi-kmz", async (_evt, payload = {}) => {
     const { exportClippedKmz } = require("../backend/export/clipToKmz.js");
     await exportClippedKmz(aoi, exportData, filePath, {
       includeAoi: true,
-      keepAttributes: !!opts.keepAttributes, // <- checkbox support
+      keepAttributes: !!opts.keepAttributes,
       kmlName: "AOI Export",
     });
 

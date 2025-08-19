@@ -5,7 +5,8 @@
   "main": "frontend/electron.js",
   "type": "commonjs",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "dev": "electron ."
   },
   "dependencies": {
     "electron": "^31.3.0",
@@ -15,5 +16,8 @@
     "proj4": "^2.19.10",
     "shapefile": "^0.6.6",
     "tokml": "^0.4.0"
+  },
+  "devDependencies": {
+    "electron-reload": "^2.0.0-alpha.1"
   }
 }
