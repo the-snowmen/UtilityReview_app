@@ -64,6 +64,7 @@
         </div>
       </div>
 
+
       <div class="aoi-controls">
         <button id="btnDrawAoi" title="Draw an area of interest polygon">Draw AOI</button>
         <button id="btnClearAoi" title="Remove the AOI polygon">Clear</button>
@@ -73,7 +74,14 @@
           <input type="checkbox" id="chkKeepAttrs">
           Keep attributes
         </label>
+
+        <!-- ✅ New: include AOI polygon in KMZ -->
+        <label class="inline" style="margin-left:.5rem">
+          <input type="checkbox" id="chkIncludeAoi">
+          Include AOI polygon
+        </label>
       </div>
+
 
       <ul id="layerList" class="layer-list"></ul>
     </div>

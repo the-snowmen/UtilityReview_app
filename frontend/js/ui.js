@@ -32,6 +32,8 @@ const $info         = document.getElementById("infoPanel");
 const $infoClose    = document.getElementById("infoClose");
 const $infoTitle    = document.getElementById("infoTitle");
 const $infoBody     = document.getElementById("infoBody");
+const $chkIncludeAoi = document.getElementById("chkIncludeAoi");
+
 
 // Coordinate HUD
 const $hudCursor    = document.getElementById("hudCursor");
@@ -88,13 +90,12 @@ $info?.addEventListener("click", (e) => {
 }, { capture: true });
 window.addEventListener("keydown", (e) => { if (e.key === "Escape") hideInfo(); });
 
-// Close on background map clicks, but ONLY when Identify is off,
-// and never when the click originated from a vector feature.
+// Close on background map clicks, but ONLY when Identify is off
 map.on("click", (e) => {
-  if (identifyOn) return; // don’t fight Identify clicks
+  if (identifyOn) return;
   const tgt = e.originalEvent?.target;
   const onVector = tgt?.closest?.(".leaflet-interactive");
-  if (onVector) return;   // came from a feature; ignore
+  if (onVector) return;
   hideInfo();
 });
 
@@ -141,7 +142,7 @@ function fmtLL(latlng) {
   return `${latlng.lat.toFixed(6)}, ${latlng.lng.toFixed(6)}`;
 }
 
-// ---- Build one layer list item (row) — now with "Style" editor
+// ---- Build one layer list item (row) — Style editor with Hide toggles
 function buildLayerItem(id, st) {
   const li = document.createElement("li");
   li.className = "layer-item";
@@ -174,6 +175,9 @@ function buildLayerItem(id, st) {
         <button class="style-scan" title="Scan values">Scan</button>
         <button class="style-clear" title="Clear style">Clear</button>
       </div>
+      <div style="margin-top:6px;color:#475569;font-size:12px">
+        <em>Tip:</em> Uncheck “Show” to hide a category from the map & export.
+      </div>
       <div class="style-mapping" style="margin-top:8px;display:grid;gap:6px"></div>
       <div class="style-actions" style="margin-top:8px;display:flex;gap:8px">
         <button class="style-apply">Apply</button>
@@ -202,7 +206,6 @@ function buildLayerItem(id, st) {
 
   colorInput.addEventListener("input", () => {
     st.color = colorInput.value;
-    // if categorical styling is *not* active, reflect immediately
     if (!st.styleBy?.field) applyLayerStyle(id);
   });
 
@@ -241,19 +244,19 @@ function buildLayerItem(id, st) {
     draggingId = null;
   });
 
-  // --- Categorical styling UI
+  // --- Categorical styling UI with Hide toggles
 
   styleBtn.addEventListener("click", () => {
     const on = panel.hasAttribute("hidden");
     panel.toggleAttribute("hidden", !on);
     if (on && selField.value) {
-      renderMappingRows();
+      renderMappingRows(false);
     }
   });
 
   btnScan.addEventListener("click", () => {
     if (!selField.value) { alert("Choose a field first."); return; }
-    renderMappingRows(true);
+    renderMappingRows(true); // rescan values from features
   });
 
   btnClear.addEventListener("click", () => {
@@ -265,17 +268,20 @@ function buildLayerItem(id, st) {
   btnApply.addEventListener("click", () => {
     const field = selField.value;
     if (!field) { alert("Choose a field."); return; }
-    const { rules, def } = readMappingFromDom();
-    setCategoricalStyle(id, field, rules, def || st.color);
+    const { rules, def, hidden } = readMappingFromDom();
+    setCategoricalStyle(id, field, rules, def || st.color, hidden);
   });
 
   // helpers
   function renderMappingRows(rescan = false) {
     const field = selField.value;
     const stNow = getById(id);
-    const rulesExisting = (stNow.styleBy && stNow.styleBy.field === field) ? (stNow.styleBy.rules || {}) : {};
+    const rulesExisting =
+      (stNow.styleBy && stNow.styleBy.field === field) ? (stNow.styleBy.rules || {}) : {};
+    const hiddenExisting =
+      (stNow.styleBy && stNow.styleBy.field === field && stNow.styleBy.hidden) ? stNow.styleBy.hidden : new Set();
 
-    const values = uniqueValuesForField(stNow.source, field, 2000, 20); // sample up to 2000, cap unique 20
+    const values = uniqueValuesForField(stNow.source, field, 4000, 50);
     mapWrap.innerHTML = "";
 
     // default row
@@ -287,6 +293,7 @@ function buildLayerItem(id, st) {
       <div style="display:flex;align-items:center;gap:8px">
         <span class="small-label" style="min-width:60px">Default</span>
         <input type="color" class="map-default" value="${defColor}">
+        <span class="small-label" style="opacity:.7">(used for values not listed)</span>
       </div>`;
     mapWrap.appendChild(defRow);
 
@@ -295,10 +302,15 @@ function buildLayerItem(id, st) {
       const key = String(v);
       const preset = rescan ? null : rulesExisting[key];
       const color = preset || randomPastelFor(key);
+      const checked = !hiddenExisting.has(key);
       const row = document.createElement("div");
       row.innerHTML = `
         <div style="display:flex;align-items:center;gap:8px">
-          <span class="small-label" style="min-width:60px;max-width:180px;overflow:hidden;text-overflow:ellipsis" title="${escapeHtml(key)}">${escapeHtml(key)}</span>
+          <label style="display:flex;align-items:center;gap:6px;min-width:60px">
+            <input type="checkbox" class="map-show" data-key="${escapeHtml(key)}" ${checked ? "checked" : ""}>
+            <span>Show</span>
+          </label>
+          <span class="small-label" style="min-width:120px;max-width:220px;overflow:hidden;text-overflow:ellipsis" title="${escapeHtml(key)}">${escapeHtml(key)}</span>
           <input type="color" class="map-color" data-key="${escapeHtml(key)}" value="${color}">
         </div>`;
       mapWrap.appendChild(row);
@@ -307,17 +319,20 @@ function buildLayerItem(id, st) {
 
   function readMappingFromDom() {
     const colors = mapWrap.querySelectorAll(".map-color");
+    const shows  = mapWrap.querySelectorAll(".map-show");
     const def = mapWrap.querySelector(".map-default")?.value || null;
     const rules = {};
+    const hidden = [];
     colors.forEach(inp => { rules[inp.dataset.key] = inp.value; });
-    return { rules, def };
+    shows.forEach(chk => { if (!chk.checked) hidden.push(chk.dataset.key); });
+    return { rules, def, hidden };
   }
 
   return li;
 }
 
 // ---- helpers for categorical style
-function uniqueValuesForField(fc, field, sampleLimit = 2000, uniqueCap = 20) {
+function uniqueValuesForField(fc, field, sampleLimit = 4000, uniqueCap = 50) {
   const vals = new Set();
   let count = 0;
   for (const f of fc?.features || []) {
@@ -327,7 +342,7 @@ function uniqueValuesForField(fc, field, sampleLimit = 2000, uniqueCap = 20) {
     vals.add(String(v));
     if (vals.size >= uniqueCap) break;
   }
-  return [...vals].sort();
+  return [...vals].sort((a,b)=>a.localeCompare(b));
 }
 function randomPastelFor(s) {
   let h = 0;
@@ -393,25 +408,53 @@ async function onExportAoiKmz(e) {
   const aoi = getAoiGeoJSON();
   if (!aoi) { alert("Draw an AOI polygon first."); return; }
 
-  // Collect visible layers + their styles
+  // Collect visible layers + their styles; also filter out hidden categories
   const layersForExport = [];
   for (const id of state.order) {
     const st = state.layers.get(id);
     if (!st?.visible || !st?.source?.features?.length) continue;
 
+    let fc = st.source;
+    const sb = st.styleBy;
+    let hiddenSet = null;
+    if (sb?.field && sb?.hidden?.size) {
+      hiddenSet = sb.hidden;
+      fc = {
+        type: "FeatureCollection",
+        features: st.source.features.filter(f => !hiddenSet.has(String(f?.properties?.[sb.field]))),
+      };
+    }
+
+    if (!fc.features.length) continue;
+
     layersForExport.push({
       name: st.name,
-      style: { color: st.color, weight: st.weight, opacity: st.opacity, styleBy: st.styleBy || null },
-      features: st.source,  // FeatureCollection
+      // pass full style info so backend can style KML
+      style: {
+        baseColor: st.color,
+        weight: st.weight,
+        opacity: st.opacity,
+        styleBy: sb ? {
+          field: sb.field,
+          rules: sb.rules || {},
+          defaultColor: sb.defaultColor || st.color,
+          hidden: hiddenSet ? [...hiddenSet] : [],
+        } : null
+      },
+      features: fc,  // FeatureCollection already filtered
     });
   }
-  if (!layersForExport.length) { alert("No visible features to export."); return; }
 
+  if (!layersForExport.length) { alert("No visible features to export."); return; }
   if (!window.backend?.exportAoiKmz) { alert("Export API missing from preload."); return; }
 
   const safeAoi = JSON.parse(JSON.stringify(aoi));
   const safeLayers = JSON.parse(JSON.stringify(layersForExport));
-  const opts = { keepAttributes: !!$chkKeepAttrs?.checked };
+  const opts = {
+    keepAttributes: !!$chkKeepAttrs?.checked,
+    includeAoi: !!$chkIncludeAoi?.checked,
+  };
+
 
   try {
     const res = await window.backend.exportAoiKmz(safeAoi, safeLayers, "aoi_export.kmz", opts);

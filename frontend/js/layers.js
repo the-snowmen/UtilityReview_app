@@ -21,12 +21,19 @@ function getPropKeys(geojson) {
   return f ? Object.keys(f.properties || {}) : [];
 }
 
+/** Helper: test if a feature should be hidden based on the styleBy.hidden set */
+function isHiddenByCategory(st, feature) {
+  const sb = st.styleBy;
+  if (!sb?.field || !sb?.hidden?.size) return false;
+  const v = feature?.properties?.[sb.field];
+  return sb.hidden.has(String(v));
+}
+
 /** Pick a color for a feature based on st.styleBy (if present) */
 function colorForFeature(st, feature) {
   const base = st.color || "#ff3333";
   const styleBy = st.styleBy;
   if (!styleBy?.field) return base;
-
   const val = feature?.properties?.[styleBy.field];
   const rules = styleBy.rules || {};
   const match = val != null && rules[String(val)];
@@ -57,6 +64,8 @@ function buildLeafletLayer(source, st, interactive) {
     renderer: sharedCanvas,
     interactive, // only active during Identify mode
     style: styleFn,
+    // NEW: filter features hidden by category
+    filter: (feature) => !isHiddenByCategory(st, feature),
     pointToLayer: (feature, latlng) =>
       L.circleMarker(latlng, {
         pane: paneName,
@@ -84,7 +93,7 @@ function buildLeafletLayer(source, st, interactive) {
     },
   });
 
-  st._styleFn = styleFn; // keep for later setStyle calls
+  st._styleFn = styleFn;
   st.layer = layer;
   if (st.visible !== false) layer.addTo(map);
   return layer;
@@ -109,7 +118,8 @@ export function addGeoJSONLayer(name, geojson, prependToTop = true) {
     layer: null,
     source,                 // stable clean copy used for export & rebuilds
     interactive: false,     // default off; Identify toggles it
-    styleBy: null,          // { field, rules: {value:color}, defaultColor }
+    // NEW: styleBy can now include a hidden Set
+    styleBy: null,          // { field, rules: {value:color}, defaultColor, hidden:Set<string> }
   };
 
   buildLeafletLayer(source, st, st.interactive);
@@ -145,14 +155,18 @@ export function applyLayerStyle(id) {
     };
   };
   st._styleFn = styleFn;
-  st.layer.setStyle?.(styleFn);
-  st.layer.eachLayer?.(l => {
-    // circle markers need manual updates
-    if (l.setStyle && l.feature) {
-      l.setStyle(styleFn(l.feature));
-    }
-    if (l.setRadius) l.setRadius(Math.max(3, st.weight + 1));
-  });
+
+  // Rebuild when styleBy filtering is active so filter() runs again.
+  if (st.styleBy?.hidden?.size) {
+    buildLeafletLayer(st.source, st, st.interactive);
+    if (!st.visible) { try { map.removeLayer(st.layer); } catch {} }
+  } else {
+    st.layer.setStyle?.(styleFn);
+    st.layer.eachLayer?.(l => {
+      if (l.setStyle && l.feature) l.setStyle(styleFn(l.feature));
+      if (l.setRadius) l.setRadius(Math.max(3, st.weight + 1));
+    });
+  }
 }
 
 export function setVisibility(id, visible) {
@@ -231,7 +245,7 @@ export function clearDebugMarkers() {
   activeMarkers.clear();
 }
 
-/** === New: Categorical styling API === **/
+/** === New: Categorical styling API with hide support === **/
 
 /**
  * Set per-category colors for a given layer ID.
@@ -239,11 +253,12 @@ export function clearDebugMarkers() {
  * @param {string} field  - attribute/column name
  * @param {Record<string,string>} rules - value->color map
  * @param {string} defaultColor - fallback color
+ * @param {string[]} hiddenValues - values to hide
  */
-export function setCategoricalStyle(id, field, rules, defaultColor) {
+export function setCategoricalStyle(id, field, rules, defaultColor, hiddenValues = []) {
   const st = getById(id); if (!st) return;
-  st.styleBy = { field, rules: rules || {}, defaultColor: defaultColor || st.color };
-  // Rebuild to refresh point colors too
+  const hidden = new Set((hiddenValues || []).map(String));
+  st.styleBy = { field, rules: rules || {}, defaultColor: defaultColor || st.color, hidden };
   buildLeafletLayer(st.source, st, st.interactive);
   if (!st.visible) { try { map.removeLayer(st.layer); } catch {} }
   syncMapOrder();

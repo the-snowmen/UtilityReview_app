@@ -1,269 +1,288 @@
 // backend/export/clipToKmz.js
 const fs = require("fs/promises");
-const path = require("path");
 const JSZip = require("jszip");
 const mapshaper = require("mapshaper");
 
-// ---------- Public API ----------
-/**
- * Export AOI-clipped data to KMZ.
- * Accepts either:
- *  - a FeatureCollection (merged), or
- *  - an array of { name, style: {color, weight, opacity}, features: FeatureCollection }
- *
- * Always strips attributes for privacy and includes the AOI polygon in the KMZ.
- */
-async function exportClippedKmz(aoi, data, outPath, opts = {}) {
-  if (!aoi) throw new Error("AOI is required");
-  if (!outPath) throw new Error("Output path required");
-  if (!outPath.toLowerCase().endsWith(".kmz")) outPath += ".kmz";
-
-  const aoiFC = toPolygonFC(aoi);
-  const includeAoi = opts.includeAoi !== false; // default true
-  const docName = opts.kmlName || "AOI Export";
-
-  // Normalize input into a layered array with style metadata
-  const layers = normalizeToLayers(data);
-
-  // Clip each layer to the AOI with mapshaper (reliable for pts/lines/polys)
-  const clippedLayers = [];
-  for (const layer of layers) {
-    const clipped = await clipWithMapshaper(layer.features, aoiFC);
-
-    // Respect "Keep attributes" checkbox
-    const keepProps = !!opts.keepAttributes;
-    if (!keepProps && Array.isArray(clipped.features)) {
-      for (const f of clipped.features) f.properties = {};
-    }
-
-    clippedLayers.push({ ...layer, features: clipped });
-  }
-
-  // Build a styled KML string (with AOI folder)
-  const kml = buildKml(docName, clippedLayers, includeAoi ? aoiFC : null);
-
-  // Package KML as KMZ (doc.kml)
-  const zip = new JSZip();
-  zip.file("doc.kml", kml);
-  const kmz = await zip.generateAsync({
-    type: "nodebuffer",
-    compression: "DEFLATE",
-    compressionOptions: { level: 6 },
-  });
-
-  await fs.mkdir(path.dirname(outPath), { recursive: true });
-  await fs.writeFile(outPath, kmz);
+// KML color is aabbggrr (alpha first), hex
+function hexToKmlColor(hex, alpha = 1) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex || "");
+  const rgb = m ? m[1] : "ff0000";
+  const r = rgb.substring(0,2), g = rgb.substring(2,4), b = rgb.substring(4,6);
+  const a = Math.round(alpha * 255).toString(16).padStart(2, "ff");
+  return (a + b + g + r).toLowerCase();
 }
 
+function escapeXml(s) {
+  return String(s ?? "")
+    .replace(/&/g,"&amp;").replace(/</g,"&lt;")
+    .replace(/>/g,"&gt;").replace(/"/g,"&quot;")
+    .replace(/'/g,"&apos;");
+}
 
-module.exports = { exportClippedKmz };
-
-// ---------- Helpers ----------
-
-function normalizeToLayers(data) {
-  // Array of layers? Keep as-is.
-  if (Array.isArray(data)) {
-    return data.map((d, i) => ({
-      name: d?.name || `Layer ${i + 1}`,
-      style: ensureStyle(d?.style),
-      features: ensureFC(d?.features),
+function coordString(g) {
+  const t = g?.type;
+  if (t === "Point") {
+    const [x,y] = g.coordinates;
+    return `${x},${y},0`;
+  }
+  const ring = (arr) => arr.map(([x,y]) => `${x},${y},0`).join(" ");
+  if (t === "LineString") return g.coordinates.map(([x,y]) => `${x},${y},0`).join(" ");
+  if (t === "Polygon") {
+    const outer = `<outerBoundaryIs><LinearRing><coordinates>${ring(g.coordinates[0])}</coordinates></LinearRing></outerBoundaryIs>`;
+    const inners = (g.coordinates.slice(1)||[]).map(
+      r => `<innerBoundaryIs><LinearRing><coordinates>${ring(r)}</coordinates></LinearRing></innerBoundaryIs>`
+    ).join("");
+    return { outer, inners };
+  }
+  if (t === "MultiLineString") return g.coordinates.map(ls => ls.map(([x,y]) => `${x},${y},0`).join(" "));
+  if (t === "MultiPolygon") {
+    return g.coordinates.map(poly => ({
+      outer: `<outerBoundaryIs><LinearRing><coordinates>${ring(poly[0])}</coordinates></LinearRing></outerBoundaryIs>`,
+      inners: (poly.slice(1)||[]).map(r => `<innerBoundaryIs><LinearRing><coordinates>${ring(r)}</coordinates></LinearRing></innerBoundaryIs>`).join("")
     }));
   }
-
-  // Single FeatureCollection? Wrap in one layer with a default style.
-  if (data && data.type === "FeatureCollection") {
-    return [{
-      name: "Features",
-      style: ensureStyle({}), // defaults
-      features: ensureFC(data),
-    }];
-  }
-
-  throw new Error("Export payload must be a FeatureCollection or an array of layers.");
+  if (t === "MultiPoint") return g.coordinates.map(([x,y]) => `${x},${y},0`);
+  return null;
 }
 
-function ensureStyle(s = {}) {
-  // Defaults match your UI look
-  return {
-    color: isColorHex(s.color) ? s.color : "#ff0000",
-    weight: isFiniteNum(s.weight) ? s.weight : 2,
-    opacity: isFiniteNum(s.opacity) ? s.opacity : 1,
-  };
-}
-
-function isFiniteNum(n) { return Number.isFinite(+n); }
-function isColorHex(x) { return typeof x === "string" && /^#?[0-9a-f]{6}$/i.test(x); }
-
-function ensureFC(fc) {
-  if (!fc || fc.type !== "FeatureCollection" || !Array.isArray(fc.features))
-    throw new Error("Layer is missing a valid FeatureCollection");
-  return fc;
-}
-
-async function clipWithMapshaper(fc, aoiFC) {
-  const inputs = {
-    "feats.json": JSON.stringify(fc),
-    "aoi.json": JSON.stringify(aoiFC),
-  };
-  const cmd = [
-    "-i feats.json name=features",
-    "-i aoi.json name=aoi",
-    "-clip target=features aoi",
-    "-o format=geojson precision=0.000001 out.json",
-  ].join(" ");
-  const out = await mapshaper.applyCommands(cmd, inputs);
-  return JSON.parse(out["out.json"].toString());
-}
-
-function toPolygonFC(aoi) {
-  if (!aoi) throw new Error("AOI missing");
-  if (aoi.type === "FeatureCollection") {
-    const polys = (aoi.features || []).filter(f =>
-      f?.geometry && (f.geometry.type === "Polygon" || f.geometry.type === "MultiPolygon")
-    );
-    if (!polys.length) throw new Error("AOI FC has no Polygon/MultiPolygon");
-    return { type: "FeatureCollection", features: polys };
-  }
-  if (aoi.type === "Feature") {
-    const g = aoi.geometry;
-    if (!g || (g.type !== "Polygon" && g.type !== "MultiPolygon")) {
-      throw new Error("AOI Feature must be Polygon/MultiPolygon");
+function buildLegendHtml(layers) {
+  let rows = [];
+  for (const L of layers) {
+    const sb = L.style?.styleBy;
+    if (!sb || !sb.field) {
+      rows.push(`<tr><th colspan="2" style="text-align:left;padding-top:6px">${escapeXml(L.name)}</th></tr>
+                 <tr><td><div style="width:14px;height:14px;background:${escapeXml(L.style?.baseColor||"#ff3333")};border:1px solid #333"></div></td><td>All features</td></tr>`);
+      continue;
     }
-    return { type: "FeatureCollection", features: [aoi] };
+    rows.push(`<tr><th colspan="2" style="text-align:left;padding-top:6px">${escapeXml(L.name)} — ${escapeXml(sb.field)}</th></tr>`);
+    const hidden = new Set(sb.hidden||[]);
+    for (const [val,color] of Object.entries(sb.rules || {})) {
+      if (hidden.has(String(val))) continue;
+      rows.push(`<tr><td><div style="width:14px;height:14px;background:${escapeXml(color)};border:1px solid #333"></div></td><td>${escapeXml(val)}</td></tr>`);
+    }
+    rows.push(`<tr><td><div style="width:14px;height:14px;background:${escapeXml(sb.defaultColor||L.style?.baseColor||"#ff3333")};border:1px solid #333"></div></td><td>Other</td></tr>`);
   }
-  if (aoi.type === "Polygon" || aoi.type === "MultiPolygon") {
-    return { type: "FeatureCollection", features: [{ type: "Feature", properties: {}, geometry: aoi }] };
-  }
-  throw new Error("Unsupported AOI type");
+  return `
+  <![CDATA[
+  <div style="font-family:Segoe UI,Roboto,Arial,sans-serif;font-size:12px">
+    <h3 style="margin:0 0 6px 0">Legend</h3>
+    <table cellspacing="4" cellpadding="2" style="border-collapse:separate">
+      ${rows.join("")}
+    </table>
+    <div style="margin-top:8px;color:#666">Hidden categories are omitted.</div>
+  </div>
+  ]]>`;
 }
 
-// ---------- KML builder (styled) ----------
+function layerStyleEntries(layer, layerIndex) {
+  const baseColor = layer?.style?.baseColor || "#ff3333";
+  const weight = Math.max(1, Math.min(20, layer?.style?.weight ?? 2));
+  const opacity = Math.max(0, Math.min(1, layer?.style?.opacity ?? 1));
+  const sb = layer?.style?.styleBy || null;
+  const hidden = new Set(sb?.hidden || []);
+  const ruleMap = sb?.rules || {};
 
-function buildKml(docName, layers, aoiFCOrNull) {
-  const stylesXml = [];
-  const foldersXml = [];
+  const styles = [];
+  const styleIdForVal = (val) => `L${layerIndex}_v_${Buffer.from(String(val)).toString("hex")}`;
+  const fallbackId = `L${layerIndex}_default`;
 
-  // Styles + folders for data layers
-  layers.forEach((layer, idx) => {
-    const styleId = `style-layer-${idx}`;
-    stylesXml.push(styleForLayer(styleId, layer.style));
+  styles.push({ id: fallbackId, color: sb?.defaultColor || baseColor, weight, opacity });
 
-    const placemarks = (layer.features.features || [])
-      .map(f => placemarkXml(styleId, f.geometry))
-      .join("");
+  if (sb?.field) {
+    for (const [val, col] of Object.entries(ruleMap)) {
+      if (hidden.has(String(val))) continue;
+      styles.push({ id: styleIdForVal(val), color: col, weight, opacity });
+    }
+  }
+  return { styles, styleIdForVal, fallbackId, field: sb?.field || null };
+}
 
-    foldersXml.push(
-      `<Folder><name>${xml(layer.name)}</name>${placemarks}</Folder>`
-    );
+function kmlStyleXml(id, colorHex, weight, opacity) {
+  const kmlCol = hexToKmlColor(colorHex, opacity);
+  return `
+  <Style id="${escapeXml(id)}">
+    <LineStyle><color>${kmlCol}</color><width>${weight}</width></LineStyle>
+    <PolyStyle><color>${kmlCol}</color><fill>1</fill><outline>1</outline></PolyStyle>
+    <IconStyle>
+      <color>${kmlCol}</color><scale>1.0</scale>
+      <Icon><href>http://maps.google.com/mapfiles/kml/shapes/placemark_circle.png</href></Icon>
+    </IconStyle>
+  </Style>`;
+}
+
+function placemarkForFeature(f, styleUrl, keepAttributes) {
+  const g = f.geometry;
+  const name = f.properties?.name || "";
+  const descTbl = keepAttributes
+    ? Object.entries(f.properties || {}).map(([k,v])=>`<tr><th>${escapeXml(k)}</th><td>${escapeXml(v)}</td></tr>`).join("")
+    : "";
+
+  const desc = keepAttributes && descTbl ? `<description><![CDATA[<table>${descTbl}</table>]]></description>` : "";
+
+  if (g.type === "Point") {
+    const coords = coordString(g);
+    return `<Placemark><name>${escapeXml(name)}</name>${desc}<styleUrl>#${escapeXml(styleUrl)}</styleUrl><Point><coordinates>${coords}</coordinates></Point></Placemark>`;
+  }
+  if (g.type === "LineString") {
+    const coords = coordString(g);
+    return `<Placemark><name>${escapeXml(name)}</name>${desc}<styleUrl>#${escapeXml(styleUrl)}</styleUrl><LineString><coordinates>${coords}</coordinates></LineString></Placemark>`;
+  }
+  if (g.type === "Polygon") {
+    const { outer, inners } = coordString(g);
+    return `<Placemark><name>${escapeXml(name)}</name>${desc}<styleUrl>#${escapeXml(styleUrl)}</styleUrl><Polygon>${outer}${inners}</Polygon></Placemark>`;
+  }
+  if (g.type === "MultiPoint") {
+    return coordString(g).map(c => `<Placemark><name>${escapeXml(name)}</name>${desc}<styleUrl>#${escapeXml(styleUrl)}</styleUrl><Point><coordinates>${c}</coordinates></Point></Placemark>`).join("");
+  }
+  if (g.type === "MultiLineString") {
+    return coordString(g).map(seg => `<Placemark><name>${escapeXml(name)}</name>${desc}<styleUrl>#${escapeXml(styleUrl)}</styleUrl><LineString><coordinates>${seg}</coordinates></LineString></Placemark>`).join("");
+  }
+  if (g.type === "MultiPolygon") {
+    return coordString(g).map(p => `<Placemark><name>${escapeXml(name)}</name>${desc}<styleUrl>#${escapeXml(styleUrl)}</styleUrl><Polygon>${p.outer}${p.inners}</Polygon></Placemark>`).join("");
+  }
+  return "";
+}
+
+// Clip a FeatureCollection to AOI using mapshaper (in-memory)
+async function clipWithAOI(fc, aoi) {
+  if (!aoi) return fc;
+  const files = { "src.json": JSON.stringify(fc), "aoi.json": JSON.stringify(aoi) };
+  const cmd = "-i src.json name=src -clip aoi.json -o format=geojson out.json";
+  const out = await mapshaper.applyCommands(cmd, files);
+  const clippedStr = out["out.json"];
+  return clippedStr ? JSON.parse(clippedStr) : fc;
+}
+
+// Create KML for AOI polygon(s)
+function aoiFolderKml(aoi) {
+  const styleId = "AOI_STYLE";
+  const stroke = hexToKmlColor("#6b7280", 1);   // gray 700 for outline
+  const fill   = hexToKmlColor("#9ca3af", 0.18); // gray 400, alpha ~0.18
+
+  let s = `
+  <Style id="${styleId}">
+    <LineStyle><color>${stroke}</color><width>2</width></LineStyle>
+    <PolyStyle><color>${fill}</color><fill>1</fill><outline>1</outline></PolyStyle>
+  </Style>
+  <Folder><name>AOI</name><open>1</open>
+  `;
+
+  const pushGeom = (geom) => {
+    if (!geom) return;
+    if (geom.type === "Polygon") {
+      const { outer, inners } = coordString(geom);
+      s += `<Placemark><name>AOI</name><styleUrl>#${styleId}</styleUrl><Polygon>${outer}${inners}</Polygon></Placemark>`;
+    } else if (geom.type === "MultiPolygon") {
+      const polys = coordString(geom);
+      polys.forEach(p => {
+        s += `<Placemark><name>AOI</name><styleUrl>#${styleId}</styleUrl><Polygon>${p.outer}${p.inners}</Polygon></Placemark>`;
+      });
+    }
+  };
+
+  if (aoi.type === "Feature") pushGeom(aoi.geometry);
+  else if (aoi.type === "FeatureCollection") (aoi.features||[]).forEach(f => pushGeom(f.geometry));
+  else if (aoi.type === "Polygon" || aoi.type === "MultiPolygon") pushGeom(aoi);
+
+  s += `</Folder>`;
+  return s;
+}
+
+/**
+ * Export KMZ:
+ *  - clips each layer to AOI
+ *  - honors keepAttributes
+ *  - includes ONE legend folder (no Document-level duplicate)
+ *  - optionally includes the AOI polygon
+ */
+async function exportClippedKmz(aoi, exportData, outPath, opts = {}) {
+  const keepAttributes = !!opts.keepAttributes;
+  const includeAoi = !!opts.includeAoi;
+
+  const layersIn = Array.isArray(exportData)
+    ? exportData
+    : [{ name: "Layer", style: {}, features: exportData }];
+
+  // Clip & (optionally) strip attributes
+  const layers = [];
+  for (const L of layersIn) {
+    const clipped = await clipWithAOI(L.features, aoi);
+    if (!clipped?.features?.length) continue;
+
+    const fc = keepAttributes ? clipped : {
+      type: "FeatureCollection",
+      features: clipped.features.map(f => ({ ...f, properties: {} }))
+    };
+
+    layers.push({ name: L.name, style: L.style || {}, features: fc });
+  }
+
+  // If nothing intersects, still create an explanatory KMZ
+  if (!layers.length) {
+    const zip = new JSZip();
+    zip.file("doc.kml", `<?xml version="1.0" encoding="UTF-8"?>
+      <kml xmlns="http://www.opengis.net/kml/2.2"><Document>
+      <name>${escapeXml(opts.kmlName || "AOI Export")}</name>
+      <open>1</open>
+      ${includeAoi && aoi ? aoiFolderKml(aoi) : ""}
+      <Placemark><name>No features intersect the AOI</name></Placemark>
+      </Document></kml>`);
+    const content = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE", compressionOptions: { level: 6 } });
+    await fs.writeFile(outPath, content);
+    return;
+  }
+
+  // Build KML
+  const legendHtml = buildLegendHtml(layers);
+  let kml = `<?xml version="1.0" encoding="UTF-8"?>
+  <kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>${escapeXml(opts.kmlName || "AOI Export")}</name>
+    <open>1</open>
+    <!-- Intentionally no Document-level legend to avoid duplicates -->
+  `;
+
+  // Styles per layer/category
+  const styleEntries = layers.map((L, i) => layerStyleEntries(L, i));
+  styleEntries.forEach(({ styles }) => styles.forEach(s => { kml += kmlStyleXml(s.id, s.color, s.weight, s.opacity); }));
+
+  // Optional AOI polygon folder
+  if (includeAoi && aoi) kml += aoiFolderKml(aoi);
+
+  // Layers and Placemarks
+  layers.forEach((L, i) => {
+    const { styleIdForVal, fallbackId, field } = styleEntries[i];
+    kml += `<Folder><name>${escapeXml(L.name)}</name>`;
+    for (const f of L.features.features || []) {
+      const val = field ? String(f?.properties?.[field] ?? "") : "";
+      let styleId = fallbackId;
+
+      if (field) {
+        const rules = L.style?.styleBy?.rules || {};
+        if (Object.prototype.hasOwnProperty.call(rules, val)) {
+          styleId = styleIdForVal(val);
+        }
+      }
+
+      kml += placemarkForFeature(f, styleId, keepAttributes);
+    }
+    kml += `</Folder>`;
   });
 
-  // AOI folder (outline only)
-  if (aoiFCOrNull) {
-    stylesXml.push(`
-      <Style id="style-aoi">
-        <LineStyle><color>${kmlColor("#000000", 1)}</color><width>2</width></LineStyle>
-        <PolyStyle><fill>0</fill><outline>1</outline></PolyStyle>
-      </Style>
-    `);
+  // Single Legend folder (clickable balloon)
+  kml += `<Folder><name>Legend</name><open>1</open>
+    <Placemark><name>Legend (open me)</name><description>${legendHtml}</description>
+      <Point><coordinates>0,0,0</coordinates></Point>
+    </Placemark>
+  </Folder>`;
 
-    const aoiPlacemarks = (aoiFCOrNull.features || [])
-      .map(f => placemarkXml("style-aoi", f.geometry))
-      .join("");
+  kml += `</Document></kml>`;
 
-    foldersXml.push(`<Folder><name>AOI</name>${aoiPlacemarks}</Folder>`);
-  }
-
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<kml xmlns="http://www.opengis.net/kml/2.2">
-<Document>
-  <name>${xml(docName)}</name>
-  ${stylesXml.join("")}
-  ${foldersXml.join("")}
-</Document>
-</kml>`;
+  // Zip to KMZ
+  const zip = new JSZip();
+  zip.file("doc.kml", kml);
+  const content = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE", compressionOptions: { level: 6 } });
+  await fs.writeFile(outPath, content);
 }
 
-function styleForLayer(id, s) {
-  // One style covers lines & polys; points use IconStyle color
-  const kmlCol = kmlColor(s.color, s.opacity);
-  const width = Math.max(1, +s.weight || 1);
-  return `
-<Style id="${xml(id)}">
-  <LineStyle><color>${kmlCol}</color><width>${width}</width></LineStyle>
-  <PolyStyle><color>${kmlCol}</color><fill>1</fill><outline>1</outline></PolyStyle>
-  <IconStyle><color>${kmlCol}</color><scale>1.1</scale></IconStyle>
-</Style>`;
-}
-
-function placemarkXml(styleId, geom) {
-  const g = geom ? geomToKml(geom) : "";
-  if (!g) return "";
-  return `<Placemark><styleUrl>#${xml(styleId)}</styleUrl>${g}</Placemark>`;
-}
-
-function geomToKml(g) {
-  if (!g) return "";
-  const t = g.type;
-  switch (t) {
-    case "Point": return pointKml(g.coordinates);
-    case "MultiPoint": return multiKml(g.coordinates.map(pointKml));
-    case "LineString": return lineKml(g.coordinates);
-    case "MultiLineString": return multiKml(g.coordinates.map(lineKml));
-    case "Polygon": return polygonKml(g.coordinates);
-    case "MultiPolygon": return multiKml(g.coordinates.map(polygonKml));
-    case "GeometryCollection": return multiKml((g.geometries || []).map(geomToKml));
-    default: return "";
-  }
-}
-
-function pointKml([x, y]) {
-  return `<Point><coordinates>${num(x)},${num(y)}</coordinates></Point>`;
-}
-
-function lineKml(coords) {
-  return `<LineString><tessellate>1</tessellate><coordinates>${coordList(coords)}</coordinates></LineString>`;
-}
-
-function polygonKml(rings) {
-  // rings: [outer, hole1, hole2, ...]
-  if (!Array.isArray(rings) || !rings.length) return "";
-  const outer = `<outerBoundaryIs><LinearRing><coordinates>${coordList(rings[0])}</coordinates></LinearRing></outerBoundaryIs>`;
-  const inners = rings.slice(1).map(r =>
-    `<innerBoundaryIs><LinearRing><coordinates>${coordList(r)}</coordinates></LinearRing></innerBoundaryIs>`
-  ).join("");
-  return `<Polygon><tessellate>1</tessellate>${outer}${inners}</Polygon>`;
-}
-
-function multiKml(parts) {
-  const body = parts.map(p => (typeof p === "string" ? p : "")).join("");
-  return `<MultiGeometry>${body}</MultiGeometry>`;
-}
-
-function coordList(coords) {
-  return coords.map(c => `${num(c[0])},${num(c[1])}`).join(" ");
-}
-
-function num(n) {
-  // compact but stable precision for KML
-  return Number(n).toFixed(6).replace(/\.?0+$/,"");
-}
-
-function xml(s) {
-  return String(s || "")
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
-}
-
-/** Convert CSS hex + opacity (0..1) to KML aabbggrr */
-function kmlColor(hex, opacity = 1) {
-  const h = hex.replace("#", "");
-  const rr = parseInt(h.slice(0, 2), 16);
-  const gg = parseInt(h.slice(2, 4), 16);
-  const bb = parseInt(h.slice(4, 6), 16);
-  const aa = Math.max(0, Math.min(1, +opacity)) * 255;
-  const a = Math.round(aa).toString(16).padStart(2, "0");
-  const b = bb.toString(16).padStart(2, "0");
-  const g = gg.toString(16).padStart(2, "0");
-  const r = rr.toString(16).padStart(2, "0");
-  return (a + b + g + r).toUpperCase();
-}
+module.exports = { exportClippedKmz };
