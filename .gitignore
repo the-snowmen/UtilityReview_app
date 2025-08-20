@@ -70,6 +70,7 @@ venv/
 *.vrt
 *.kmz
 *.kml
+*.zip
 
 # If you want to keep a Data/ folder structure but no big files:
 # Data/** (uncomment to ignore everything in Data)
