@@ -1,18 +1,18 @@
 // frontend/js/map.js
 export const sharedCanvas = L.canvas({ padding: 0.5, tolerance: 3 });
 const $map = document.getElementById("map");
+// High-contrast AOI style (works on dark/light basemaps)
+const AOI_STYLE = {
+  color: "#ff5a5f",        // stroke (light red)
+  weight: 2,
+  dashArray: "6,4",
+  fillColor: "#ff9aa2",    // soft red fill
+  fillOpacity: 0.20
+};
+
 
 export const map = L.map($map, { preferCanvas: true, zoomControl: false, renderer: sharedCanvas })
   .setView([39, -96], 4);
-
-L.control.zoom({ position: "bottomright" }).addTo(map);
-
-// Optional: If you have a Stadia Maps API key, put it here. It also works without a key
-// for light dev/testing usage, but a key is recommended for reliability/rate limits.
-const STADIA_KEY = ""; // e.g. "your-api-key"
-
-// Use Stadia Maps endpoints for Stamen layers
-const stamenAttribution = '© <a href="https://stadiamaps.com/">Stadia Maps</a>, © <a href="https://stamen.com/">Stamen Design</a>, © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 
 export const baseLayers = {
   osm: L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -22,17 +22,22 @@ export const baseLayers = {
 
   esri_streets: L.tileLayer(
     "https://services.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
-    { attribution: "Tiles © Esri", maxZoom: 22 }
+    { attribution: "Tiles © Esri", maxZoom: 19 }
   ),
 
   esri_sat: L.tileLayer(
     "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-    { attribution: "Imagery © Esri", maxZoom: 22 }
+    { attribution: "Imagery © Esri", maxZoom: 19 }
   ),
 
   carto_light: L.tileLayer(
     "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
-    { attribution: "&copy; CARTO & OpenStreetMap", maxZoom: 22 }
+    { attribution: "&copy; CARTO & OpenStreetMap", maxZoom: 19 }
+  ),
+
+    carto_dark: L.tileLayer(
+    "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+    { attribution: "&copy; CARTO & OpenStreetMap", maxZoom: 19 }
   ),
 };
 
@@ -46,18 +51,26 @@ export function switchBasemap(key) {
 
 // ---- AOI drawing (Leaflet.draw)
 let aoiLayer = null;
+let aoiDrawTool = null;   // <— track current draw tool
 
 export function startAoiDraw() {
   if (!L || !L.Draw || !L.Draw.Polygon) {
     alert("Leaflet.draw not loaded");
     return;
   }
-  const draw = new L.Draw.Polygon(map, {
-    shapeOptions: { color: "#111827", weight: 2, dashArray: "4,3", fillOpacity: 0.05 },
+  if (aoiDrawTool?.disable) aoiDrawTool.disable();
+
+  aoiDrawTool = new L.Draw.Polygon(map, {
+    shapeOptions: AOI_STYLE,
     allowIntersection: false,
     showArea: true,
   });
-  draw.enable();
+  aoiDrawTool.enable();
+}
+
+export function stopAoiDraw() {
+  if (aoiDrawTool?.disable) aoiDrawTool.disable();
+  aoiDrawTool = null;
 }
 
 export function clearAoi() {
@@ -72,6 +85,10 @@ map.on(L.Draw.Event.CREATED, (e) => {
   if (e.layerType !== "polygon") return;
   if (aoiLayer) map.removeLayer(aoiLayer);
   aoiLayer = e.layer;
-  aoiLayer.setStyle?.({ color: "#111827", weight: 2, dashArray: "4,3", fillOpacity: 0.05 });
+  aoiLayer.setStyle?.(AOI_STYLE);
   aoiLayer.addTo(map);
+  aoiLayer.bringToFront();          // keep it visible above tiles
+  stopAoiDraw();
 });
+
+

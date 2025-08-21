@@ -4,6 +4,7 @@
   <head>
     <meta charset="UTF-8" />
     <title>UR App – GIS Viewer</title>
+
     <meta http-equiv="Content-Security-Policy"
       content="default-src 'self' data: blob: https:;
                img-src 'self' data: blob: https:;
@@ -11,82 +12,82 @@
                script-src 'self' https://unpkg.com;
                connect-src 'self' https:;
                font-src 'self' data: https:;" />
+
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
     <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" crossorigin="">
-    <link rel="stylesheet" href="./style.css">
-
-    <!-- Small overrides that fix close-behavior reliably -->
-    <style>
-      /* Ensure the hidden attribute actually hides our flex panel */
-      .info-panel[hidden] { display: none !important; }
-
-      /* Make sure Leaflet popups always accept clicks on the close button */
-      .leaflet-pane,
-      .leaflet-marker-pane,
-      .leaflet-popup-pane,
-      .leaflet-popup,
-      .leaflet-popup-close-button { pointer-events: auto; }
-
-      /* Coordinate HUD styling (top-right) */
-      .coord-hud {
-        position: fixed; top: 12px; right: 12px;
-        background: rgba(255,255,255,0.98);
-        border: 1px solid #e7eaf3; border-radius: 10px;
-        box-shadow: 0 8px 24px rgba(0,0,0,0.15);
-        padding: 8px 10px;
-        font: 12px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-        z-index: 1100; min-width: 210px;
-      }
-      .coord-hud .row { display:flex; justify-content:space-between; gap:10px; }
-      .coord-hud .lbl { color:#475569; font-weight:600; }
-      .coord-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-    </style>
+    <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
+    <!-- Fullscreen Map -->
     <div id="map"></div>
 
-    <div class="floating-panel">
-      <div class="panel-header">
-        <div class="basemap-switcher">
-          <span>Basemap</span>
-          <select id="basemapSelect" class="sel">
-            <option value="carto_light">Carto Light</option>
-            <option value="osm">OSM</option>
-            <option value="esri_streets">ESRI Streets</option>
-            <option value="esri_sat">ESRI Imagery</option>
-          </select>
-        </div>
-        <div></div>
-        <div class="header-actions">
-          <button id="btnFitAll" title="Zoom to all visible layers">Fit All</button>
-          <button id="btnImport" title="Import GIS files">+ Import</button>
-          <button id="btnIdentify" title="Click features to view attributes">Identify</button>
-        </div>
-      </div>
+    <!-- Left dark sidebar (Layers) -->
+    <aside class="layers-panel">
+      <div class="layers-header">Layers</div>
+      <ul id="layerList" class="layers-list"></ul>
+    </aside>
 
-
-      <div class="aoi-controls">
-        <button id="btnDrawAoi" title="Draw an area of interest polygon">Draw AOI</button>
-        <button id="btnClearAoi" title="Remove the AOI polygon">Clear</button>
-        <button id="btnExportAoi" title="Export features inside AOI to KMZ">Export AOI → KMZ</button>
-
-        <label class="inline" style="margin-left:.5rem">
-          <input type="checkbox" id="chkKeepAttrs">
-          Keep attributes
-        </label>
-
-        <!-- ✅ New: include AOI polygon in KMZ -->
-        <label class="inline" style="margin-left:.5rem">
-          <input type="checkbox" id="chkIncludeAoi">
-          Include AOI polygon
-        </label>
-      </div>
-
-
-      <ul id="layerList" class="layer-list"></ul>
+    <!-- Top-right compact toolbar -->
+    <div class="topbar">
+      <button id="btnImport" class="pill">Import</button>
+      <button id="btnDrawAoi" class="pill">AOI</button>
+      <button id="btnFitAll" class="pill">Fit</button>
+      <button id="btnIdentify" class="pill">Identify</button>
+      <div class="divider"></div>
+      <label class="select-wrap">
+        <select id="basemapSelect" title="Basemap">
+          <option value="carto_light">Carto Light</option>
+          <option value="carto_dark">Carto Dark</option>
+          <option value="osm">OpenStreetMap</option>
+          <option value="esri_streets">ESRI Streets</option>
+          <option value="esri_sat">ESRI Imagery</option>
+        </select>
+      </label>
     </div>
 
-    <!-- Identify: Feature info -->
+    <!-- AOI panel (only visible when AOI toggled on) -->
+    <div id="aoiPanel" class="aoi-panel" hidden>
+      <label class="inline"><input type="checkbox" id="chkKeepAttrs"> Keep attrs</label>
+      <label class="inline"><input type="checkbox" id="chkIncludeAoi"> Include AOI</label>
+      <button id="btnExportAoi" class="pill">Export</button>
+      <button id="btnClearAoi" class="pill ghost">Clear AOI</button>
+    </div>
+
+    <!-- Style Modal (global style window) -->
+    <div id="styleModal" class="modal" hidden>
+      <div class="modal-box">
+        <div class="modal-head">
+          <div id="styleModalTitle">Layer Style</div>
+          <button id="styleModalClose" title="Close">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="row">
+            <span class="small-label">Color</span>
+            <input type="color" id="styleBaseColor">
+            <span class="small-label">Weight</span>
+            <input type="number" id="styleBaseWeight" min="0" max="20" step="1">
+            <span class="small-label">Opacity</span>
+            <input type="number" id="styleBaseOpacity" min="0" max="1" step="0.05">
+          </div>
+
+          <div class="row">
+            <span class="small-label">Field</span>
+            <select id="styleFieldSelect"></select>
+            <button id="styleScanBtn">Scan</button>
+            <button id="styleClearBtn">Clear</button>
+          </div>
+
+          <div class="hint"><em>Tip:</em> Uncheck “Show” to hide a category from the map & export.</div>
+          <div id="styleMapWrap" class="mapping"></div>
+
+          <div class="row">
+            <button id="styleApplyBtn" class="pill">Apply</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Identify panel (bottom-right) -->
     <div id="infoPanel" class="info-panel" hidden>
       <div class="info-header">
         <div id="infoTitle">Feature Info</div>
@@ -95,14 +96,16 @@
       <div id="infoBody" class="info-body"></div>
     </div>
 
-    <!-- Coordinate HUD (top-right) -->
-    <div id="coordHud" class="coord-hud">
-      <div class="row"><span class="lbl">Cursor</span><span id="hudCursor" class="coord-mono">—</span></div>
-      <div class="row"><span class="lbl">Center</span><span id="hudCenter" class="coord-mono">—</span></div>
-      <div class="row"><span class="lbl">Zoom</span><span id="hudZoom" class="coord-mono">—</span></div>
-      <div class="row"><span class="lbl">CRS</span><span class="coord-mono">EPSG:4326</span></div>
+    <!-- Bottom-left coordinate HUD -->
+    <div class="coord-pill">
+      <span id="hudCursor">—</span>
+      <span class="sep">|</span>
+      <span id="hudCenter">center 39.000000, -96.000000</span>
+      <span class="sep">|</span>
+      <span id="hudZoom">z4</span>
     </div>
 
+    <!-- Scripts -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
     <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js" crossorigin=""></script>
     <script type="module" src="./js/main.js"></script>
