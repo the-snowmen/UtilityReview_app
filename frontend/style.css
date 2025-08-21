@@ -120,3 +120,10 @@ html, body { height: 100%; margin: 0; }
 .modal-body .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px; }
 .modal-body .hint { color:#475569; font-size:12px; margin:6px 0 8px; }
 .mapping { display:grid; gap:6px; }
+
+/* Stronger Apply button in Style modal */
+#styleApplyBtn.pill {
+  background: #111827;   /* near-black */
+  color: #fff;
+}
+#styleApplyBtn.pill:hover { background: #1f2937; }

@@ -363,6 +363,16 @@ function renderMappingRowsModal(st, field, rescan=false) {
   const values = uniqueValuesForField(st.source, field, 4000, 50);
   $styleMapWrap.innerHTML = "";
 
+  // --- Select all/none master toggle
+  const bulk = document.createElement("div");
+  bulk.style.margin = "0 0 6px 0";
+  bulk.innerHTML = `
+    <label style="display:flex;align-items:center;gap:6px">
+      <input type="checkbox" id="styleSelectAll">
+      <span>Select all</span>
+    </label>`;
+  $styleMapWrap.appendChild(bulk);
+
   // Default color row (for unmatched values)
   const defColor = (st.styleBy && st.styleBy.field === field && st.styleBy.defaultColor)
     ? st.styleBy.defaultColor : st.color;
@@ -393,7 +403,16 @@ function renderMappingRowsModal(st, field, rescan=false) {
       </div>`;
     $styleMapWrap.appendChild(row);
   }
+
+  // Wire the master checkbox
+  const allBoxes = [...$styleMapWrap.querySelectorAll(".map-show")];
+  const $master = $styleMapWrap.querySelector("#styleSelectAll");
+  const refreshMaster = () => { $master.checked = allBoxes.every(b => b.checked); };
+  refreshMaster();
+  $master.addEventListener("change", () => { allBoxes.forEach(b => (b.checked = $master.checked)); });
+  allBoxes.forEach(b => b.addEventListener("change", refreshMaster));
 }
+
 function readMappingFromModal() {
   const colors = $styleMapWrap.querySelectorAll(".map-color");
   const shows  = $styleMapWrap.querySelectorAll(".map-show");
