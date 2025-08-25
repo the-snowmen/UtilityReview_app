@@ -2,34 +2,92 @@
 html, body { height: 100%; margin: 0; }
 #map { position: fixed; inset: 0; }
 
-.layers-panel {
-  position: fixed; top: 0; left: 0; bottom: 0;
-  width: 285px;
-  background: rgba(15, 23, 42, 0.7);
-  color: #e5e7eb;
-  z-index: 1000;
-  display: flex; flex-direction: column;
-  border-right: 1px solid #111827;
+/* THEME TOKENS */
+:root{
+  --panel-w: 320px;
+  --panel-gap: 18px;
+  --hud-h: 44px;                      /* height reserved for HUD so panel won't overlap */
+  --glass-bg: rgba(31,41,55,0.72);    /* gray-800 glass */
+  --glass-border: rgba(255,255,255,0.10);
+  --card-bg: rgba(255,255,255,0.06);
+  --card-border: rgba(255,255,255,0.10);
+  --text: #e5e7eb;
+  --text-muted: #cbd5e1;
 }
 
-.layers-header {
-  padding: 10px 12px;
-  font: 600 18px system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-  border-bottom: 1px solid #1f2937;
+/* FLOATING LAYERS PANEL (pill, away from edges) */
+.layers-panel {
+  position: fixed;
+  top: var(--panel-gap);
+  left: var(--panel-gap);
+  width: var(--panel-w);
+
+  /* Reserve space for HUD at bottom-left to avoid overlap */
+  max-height: calc(100vh - var(--panel-gap) - var(--hud-h) - var(--panel-gap));
+  z-index: 1000;
+
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+
+  padding: 10px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--glass-border);
+  border-radius: 16px;
+  box-shadow: 0 20px 40px rgba(0,0,0,0.35);
+  color: var(--text);
 }
-.layers-list { list-style: none; margin: 0; padding: 8px 8px 16px; overflow: auto; flex: 1 1 auto; }
-.layer-item { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06);
-  border-radius: 8px; padding: 8px; color: #e5e7eb; margin-bottom: 8px; }
+
+/* Title */
+.layers-header {
+  padding: 4px 6px 6px;
+  font: 700 14px/1 system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  color: var(--text-muted);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+/* Scrollable list area */
+.layers-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  flex: 1 1 auto;
+  display: grid;
+  gap: 8px;
+}
+
+/* Layer item = pill card */
+.layer-item {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 14px;
+  padding: 8px;
+  color: var(--text);
+}
 .layer-top { display:flex; align-items:center; gap:8px; }
 .layer-name { flex:1 1 auto; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+/* Small pill buttons */
 .drag-handle, .zoom-btn, .remove-btn, .style-btn {
-  border: none; background: rgba(255,255,255,0.10); color: #e5e7eb; border-radius: 8px; padding: 4px 8px; cursor: pointer;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.10);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 4px 10px;
+  cursor: pointer;
+  font: 600 12px system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
 }
 .drag-handle { cursor: grab; }
 .dragging { opacity: 0.5; }
 
-/* Shift Leaflet controls away from sidebar */
-.leaflet-left { left: 297px; }
+/* Checkbox spacing */
+.layer-item .chk { transform: translateY(1px); }
+
+/* Leaflet left controls shifted so they don't sit under the panel */
+.leaflet-left { left: calc(var(--panel-w) + var(--panel-gap) + 10px); }
 
 /* Top-right compact toolbar */
 .topbar {
@@ -39,7 +97,7 @@ html, body { height: 100%; margin: 0; }
   padding: 6px 8px; border-radius: 12px; z-index: 1100;
   border: 1px solid rgba(255,255,255,0.15);
 }
-.pill { border:none; cursor:pointer; border-radius:10px; padding:6px 10px;
+.pill { border:none; cursor:pointer; border-radius:999px; padding:6px 10px;
   font:600 12px system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
   color:#e9edf6; background: rgba(255,255,255,0.12); }
 .pill:hover { background: rgba(255,255,255,0.18); }
@@ -47,21 +105,18 @@ html, body { height: 100%; margin: 0; }
 .pill.ghost { background: rgba(255,255,255,0.08); }
 .divider { width:1px; height:22px; background: rgba(255,255,255,0.18); margin: 0 2px; }
 
-/* Basemap select: darker control; white options for readability */
+/* Basemap select (dark) */
 .select-wrap select {
   appearance: none; background:#2b3442; color:#e9edf6;
-  border:none; border-radius:10px; font:600 12px system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  border:none; border-radius:999px; font:600 12px system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
   padding:6px 10px; cursor:pointer;
 }
 .select-wrap select option { background:#ffffff; color:#111827; }
 
-/* Ensure hidden panels are actually hidden */
+/* AOI panel (below toolbar) */
 .aoi-panel[hidden],
-.info-panel[hidden] {
-  display: none !important;
-}
+.info-panel[hidden] { display: none !important; }
 
-/* AOI panel (below toolbar, no overlap) */
 .aoi-panel {
   position: fixed; top: 64px; right: 18px;
   display:flex; align-items:center; gap:10px;
@@ -72,15 +127,22 @@ html, body { height: 100%; margin: 0; }
 }
 .aoi-panel .inline { display:inline-flex; align-items:center; gap:6px; }
 
-/* Bottom-left coordinate pill */
-.coord-pill {
-  position: fixed; left: 297px; bottom: 14px;
-  background: rgba(0,0,0,0.55); color: #f1f5f9;
-  border-radius: 8px; padding: 6px 10px;
+/* ---------- HUD: lower-left slim pill ---------- */
+.hud {
+  position: fixed;
+  left: var(--panel-gap);
+  bottom: var(--panel-gap);
+  background: rgba(0,0,0,0.55);   /* darker slim look */
+  color: #f1f5f9;
+  border-radius: 8px;
+  padding: 6px 10px;
   font: 12px system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-  z-index: 1100; border: 1px solid rgba(255,255,255,0.15);
+  z-index: 1100;
+  border: 1px solid rgba(255,255,255,0.15);
+  white-space: nowrap;
 }
-.coord-pill .sep { opacity:.65; margin:0 8px; }
+.hud .sep { opacity:.65; margin:0 8px; }
+
 
 /* Leaflet zoom bottom-right */
 .leaflet-control-zoom { margin: 0 12px 12px 0; }
@@ -121,9 +183,5 @@ html, body { height: 100%; margin: 0; }
 .modal-body .hint { color:#475569; font-size:12px; margin:6px 0 8px; }
 .mapping { display:grid; gap:6px; }
 
-/* Stronger Apply button in Style modal */
-#styleApplyBtn.pill {
-  background: #111827;   /* near-black */
-  color: #fff;
-}
+#styleApplyBtn.pill { background: #111827; color: #fff; }
 #styleApplyBtn.pill:hover { background: #1f2937; }
