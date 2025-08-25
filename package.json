@@ -9,6 +9,7 @@
     "dev": "electron ."
   },
   "dependencies": {
+    "@turf/turf": "^7.2.0",
     "electron": "^31.3.0",
     "iconv-lite": "^0.6.3",
     "jszip": "^3.10.1",

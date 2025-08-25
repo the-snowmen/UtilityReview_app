@@ -30,7 +30,7 @@ const turf = require("@turf/turf");
 // =======================
 // Defaults (overridable)
 // =======================
-const DEFAULT_FEATURE_WIDTH_PX = 10;   // thicker so GE Pro renders nicely
+const DEFAULT_FEATURE_WIDTH_PX = 4;   // thicker so GE Pro renders nicely
 const DEFAULT_AOI_STROKE_ALPHA = 1.0;  // opaque outline
 const DEFAULT_AOI_FILL_ALPHA   = 0.55; // visible red fill on dark backgrounds
 const DEFAULT_AOI_WIDTH_PX     = 3;
