@@ -4,41 +4,50 @@ const path = require("path");
 const JSZip = require("jszip");
 const mapshaper = require("mapshaper");
 let createCanvas;
-try {
-  ({ createCanvas } = require("canvas"));
-} catch {
-  throw new Error("Missing dependency: canvas. Install with `npm i canvas`");
-}
+try { ({ createCanvas } = require("canvas")); }
+catch { throw new Error("Missing dependency: canvas. Install with `npm i canvas`"); }
 
 // ---------- Helpers ----------
 function hexToKmlColor(hex, opacity = 1) {
-  // hex "#RRGGBB" to KML "AABBGGRR" (alpha 0-255)
   const h = String(hex || "#ff3333").replace("#", "");
-  const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
+  const r = parseInt(h.slice(0,2),16), g = parseInt(h.slice(2,4),16), b = parseInt(h.slice(4,6),16);
   const a = Math.max(0, Math.min(255, Math.round(opacity * 255)));
-  const to2 = (n) => n.toString(16).padStart(2, "0");
-  return `${to2(a)}${to2(b)}${to2(g)}${to2(r)}`.toLowerCase();
+  const to2 = (n)=>n.toString(16).padStart(2,"0");
+  return `${to2(a)}${to2(b)}${to2(g)}${to2(r)}`.toLowerCase(); // AABBGGRR
 }
-function centroidOfPolygonlike(fc) {
-  // very rough centroid from bbox of all features
-  let minX= Infinity, minY= Infinity, maxX=-Infinity, maxY=-Infinity;
-  for (const f of fc?.features || []) {
-    const g = f.geometry; if (!g) continue;
-    const coords = [];
-    const push = (c) => { const [x,y] = c; if (x<minX)minX=x; if (y<minY)minY=y; if (x>maxX)maxX=x; if (y>maxY)maxY=y; };
-    const walk = (geom) => {
-      const t = geom.type;
-      if (t === "Point") push(geom.coordinates);
-      else if (t === "MultiPoint" || t === "LineString") geom.coordinates.forEach(push);
-      else if (t === "MultiLineString" || t === "Polygon") geom.coordinates.flat(2).forEach(push);
-      else if (t === "MultiPolygon") geom.coordinates.flat(3).forEach(push);
-      else if (t === "GeometryCollection") geom.geometries.forEach(walk);
-    };
-    walk(g);
+
+function eachCoord(geom, fn) {
+  // Calls fn([x,y]) for any GeoJSON geometry
+  if (!geom) return;
+  const t = geom.type;
+  const C = geom.coordinates;
+  if (t === "Point") return fn(C);
+  if (t === "MultiPoint" || t === "LineString") return C.forEach(fn);
+  if (t === "MultiLineString" || t === "Polygon") {
+    // flatten one level to get an array of [x,y]
+    return C.flat(1).forEach(fn);
   }
-  if (minX === Infinity) return { lon: -96, lat: 39, range: 1000000 };
-  return { lon: (minX + maxX) / 2, lat: (minY + maxY) / 2, range: Math.max(maxX - minX, maxY - minY) * 111000 * 2.2 };
+  if (t === "MultiPolygon") return C.flat(2).forEach(fn);
+  if (t === "GeometryCollection") return geom.geometries.forEach(g => eachCoord(g, fn));
 }
+
+function centroidOfPolygonlike(fc) {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const f of fc?.features || []) {
+    eachCoord(f.geometry, ([x,y]) => {
+      if (x < minX) minX = x; if (y < minY) minY = y;
+      if (x > maxX) maxX = x; if (y > maxY) maxY = y;
+    });
+  }
+  if (minX === Infinity) return { lon: -96, lat: 39, range: 1200000 };
+  const lon = (minX + maxX) / 2;
+  const lat = (minY + maxY) / 2;
+  const dx = maxX - minX, dy = maxY - minY;
+  const km = Math.max(dx, dy) * 111;         // rough degrees→km
+  const range = Math.max(500, Math.min(5e6, km * 1000 * 2.2));
+  return { lon, lat, range };
+}
+
 function geomToKml(geom) {
   const esc = (n)=>Number(n).toFixed(7);
   const coords1 = (arr)=>arr.map(([x,y])=>`${esc(x)},${esc(y)},0`).join(" ");
@@ -84,20 +93,16 @@ async function clipWithMapshaper(layerFC, aoiFC) {
 
 // ---------- Legend PNG ----------
 function drawLegendPng(layersMeta) {
-  // layersMeta: [{ name, geomType, style: { baseColor, weight, opacity, styleBy? } }]
   const rowH = 20, titleH = 18, groupPad = 10, sidePad = 12;
-  // compute rows
   let rows = 0;
   for (const L of layersMeta) {
-    rows += 1; // group title
+    rows += 1; // title
     if (L.style.styleBy?.field) {
       const hidden = new Set(L.style.styleBy.hidden || []);
       const keys = Object.keys(L.style.styleBy.rules || {});
-      rows += Math.max(1, keys.filter(k => !hidden.has(String(k))).length); // at least 1 row with "(all hidden)"
-    } else {
-      rows += 1; // single "Features" row
-    }
-    rows += 1; // extra spacing
+      rows += Math.max(1, keys.filter(k => !hidden.has(String(k))).length);
+    } else rows += 1;
+    rows += 1; // spacing
   }
   const width = 360;
   const height = Math.max(60, rows * rowH + layersMeta.length * groupPad + 24);
@@ -121,7 +126,6 @@ function drawLegendPng(layersMeta) {
   y += 16;
 
   for (const L of layersMeta) {
-    // Title
     y += 6;
     ctx.font = "600 12px Segoe UI, system-ui, Arial";
     ctx.fillStyle = "#0b1324";
@@ -181,12 +185,17 @@ function drawLegendPng(layersMeta) {
     }
     y += groupPad;
   }
-
   return canvas.toBuffer("image/png");
 }
 
 // ---------- KML builder ----------
-function buildKmlDoc({ aoi, layers }) {
+function escapeXml(s) {
+  return String(s ?? "")
+    .replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")
+    .replaceAll('"',"&quot;").replaceAll("'","&apos;");
+}
+
+function buildKmlDoc({ aoi, layers, includeAoi }) {
   const allStyles = new Map(); // styleId -> xml
   const placemarks = [];
 
@@ -202,6 +211,21 @@ function buildKmlDoc({ aoi, layers }) {
     const xml = `<Style id="${key}">${icon}${line}${poly}</Style>`;
     allStyles.set(key, xml);
     return key;
+  }
+
+  // AOI style (optional)
+  if (includeAoi) {
+    allStyles.set("aoi-style", `
+      <Style id="aoi-style">
+        <LineStyle><color>${hexToKmlColor("#ff5a5f", 1)}</color><width>2</width></LineStyle>
+        <PolyStyle><color>${hexToKmlColor("#ff9aa2", 0.25)}</color></PolyStyle>
+      </Style>`);
+    for (const f of aoi.features || []) {
+      placemarks.push(`
+        <Placemark><name>AOI</name><styleUrl>#aoi-style</styleUrl>
+          ${geomToKml(f.geometry)}
+        </Placemark>`);
+    }
   }
 
   layers.forEach((L, idx) => {
@@ -262,24 +286,12 @@ function buildKmlDoc({ aoi, layers }) {
   return kml;
 }
 
-function escapeXml(s) {
-  return String(s ?? "")
-    .replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")
-    .replaceAll('"',"&quot;").replaceAll("'","&apos;");
-}
-
 // ---------- Public API ----------
-/**
- * @param {Feature|FeatureCollection} aoi
- * @param {Array|FeatureCollection} data  array of {name, style, features}  (preferred)
- * @param {string} outPath  target .kmz file path
- * @param {object} opts { includeAoi:boolean, keepAttributes:boolean, kmlName?:string }
- */
 async function exportClippedKmz(aoi, data, outPath, opts = {}) {
   const includeAoi = opts.includeAoi !== false;
   const keepAttrs = !!opts.keepAttributes;
 
-  // Normalize AOI to FC: one polygon
+  // Normalize AOI -> FeatureCollection
   const aoiFC = (aoi?.type === "FeatureCollection") ? aoi : { type: "FeatureCollection", features: [aoi] };
 
   // Normalize layer array input
@@ -294,7 +306,6 @@ async function exportClippedKmz(aoi, data, outPath, opts = {}) {
     const clipped = await clipWithMapshaper(L.features, aoiFC);
     if (!clipped?.features?.length) continue;
 
-    // Optionally strip properties
     if (!keepAttrs) for (const f of clipped.features) f.properties = {};
 
     layersClipped.push({
@@ -314,9 +325,9 @@ async function exportClippedKmz(aoi, data, outPath, opts = {}) {
     });
   }
 
-  if (!layersClipped.length) throw new Error("No visible features within AOI to export.");
+  if (!layersClipped.length && !includeAoi) throw new Error("No visible features within AOI to export.");
 
-  // 2) Legend PNG: derive meta info
+  // 2) Legend PNG
   const legendMeta = layersClipped.map(L => ({
     name: L.name,
     geomType: guessLayerGeomType(L.features),
@@ -324,7 +335,7 @@ async function exportClippedKmz(aoi, data, outPath, opts = {}) {
   }));
   const legendPng = drawLegendPng(legendMeta);
 
-  // 3) Media icon for points (white dot)
+  // 3) Point icon
   const dotCanvas = createCanvas(16, 16);
   const dctx = dotCanvas.getContext("2d");
   dctx.clearRect(0,0,16,16);
@@ -332,8 +343,8 @@ async function exportClippedKmz(aoi, data, outPath, opts = {}) {
   dctx.beginPath(); dctx.arc(8,8,6,0,Math.PI*2); dctx.fill();
   const dotPng = dotCanvas.toBuffer("image/png");
 
-  // 4) KML document
-  const kml = buildKmlDoc({ aoi: aoiFC, layers: layersClipped });
+  // 4) KML
+  const kml = buildKmlDoc({ aoi: aoiFC, layers: layersClipped, includeAoi });
 
   // 5) Package KMZ
   const zip = new JSZip();
