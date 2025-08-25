@@ -9,6 +9,9 @@ import {
 } from "./layers.js";
 import { refreshLegend } from "./legend.js";
 
+// NEW: comments feature
+import { toggleCommentMode, setCommentMode, getCommentsGeoJSON, clearComments } from "./features/comments.js";
+
 // --- DOM
 const $basemap       = document.getElementById("basemapSelect");
 const $btnImport     = document.getElementById("btnImport");
@@ -21,6 +24,7 @@ const $btnClearAoi   = document.getElementById("btnClearAoi");
 const $btnExportAoi  = document.getElementById("btnExportAoi");
 const $chkKeepAttrs  = document.getElementById("chkKeepAttrs");
 const $chkIncludeAoi = document.getElementById("chkIncludeAoi");
+const $btnAoiComment = document.getElementById("btnAoiComment"); // NEW
 
 const $btnIdentify   = document.getElementById("btnIdentify");
 const $info          = document.getElementById("infoPanel");
@@ -99,10 +103,20 @@ $btnDrawAoi?.addEventListener("click", () => {
   } else {
     $aoiPanel?.setAttribute("hidden", "true");
     stopAoiDraw();
-    clearAoi();
+    setCommentMode(false); // turn off comment mode
   }
 });
-$btnClearAoi?.addEventListener("click", () => clearAoi());
+
+$btnAoiComment?.addEventListener("click", () => {
+  const on = toggleCommentMode();
+  $btnAoiComment.classList.toggle("active", on);
+});
+
+$btnClearAoi?.addEventListener("click", () => {
+  clearAoi();
+  // Keep comments unless you want them cleared too:
+  // clearComments();
+});
 $btnExportAoi?.addEventListener("click", onExportAoiKmz);
 
 // ---- Identify toggle
@@ -140,6 +154,8 @@ window.addEventListener("keydown", (e) => {
     $btnDrawAoi?.classList.remove("active");
     $aoiPanel?.setAttribute("hidden", "true");
     stopAoiDraw();
+    setCommentMode(false);
+    $btnAoiComment?.classList.remove("active");
   }
   hideInfo();
 });
@@ -153,7 +169,7 @@ function escapeHtml(s) {
 }
 function fmtLL(latlng) { return `${latlng.lat.toFixed(6)}, ${latlng.lng.toFixed(6)}`; }
 
-// ---- Build one layer list item (compact; Style opens modal)
+// ---- Build one layer list item
 function buildLayerItem(id, st) {
   const li = document.createElement("li");
   li.className = "layer-item";
@@ -217,7 +233,7 @@ function getDragAfterElement(container, y) {
   }, { offset: Number.NEGATIVE_INFINITY }).element;
 }
 
-// ---- AOI export
+// ---- AOI export (includes Comments layer if any)
 async function onExportAoiKmz(e) {
   e?.preventDefault?.();
   e?.stopPropagation?.();
@@ -226,6 +242,8 @@ async function onExportAoiKmz(e) {
   if (!aoi) { alert("Draw an AOI polygon first."); return; }
 
   const layersForExport = [];
+
+  // Existing visible layers (with styling info)
   for (const id of state.order) {
     const st = state.layers.get(id);
     if (!st?.visible || !st?.source?.features?.length) continue;
@@ -256,6 +274,16 @@ async function onExportAoiKmz(e) {
         } : null
       },
       features: fc,
+    });
+  }
+
+  // NEW: Comments as a separate layer (points)
+  const comments = getCommentsGeoJSON();
+  if (comments?.features?.length) {
+    layersForExport.push({
+      name: "Comments",
+      style: { baseColor: "#f59e0b", weight: 2, opacity: 1, styleBy: null },
+      features: comments
     });
   }
 
@@ -311,7 +339,7 @@ map.on("moveend zoomend", updateHudCenter);
 map.on("mousemove", updateHudCursor);
 
 // =====================
-// Style Modal logic
+// Style Modal logic (unchanged)
 // =====================
 function openStyleModal(id) {
   const st = getById(id); if (!st) return;
@@ -332,9 +360,22 @@ function openStyleModal(id) {
   $styleField.innerHTML = `<option value="">(choose)</option>` +
     (st.propKeys || []).map(k => `<option value="${escapeHtml(k)}"${st.styleBy?.field===k?' selected':''}>${escapeHtml(k)}</option>`).join("");
 
+  // Button states
+  $styleScan.disabled  = !$styleField.value;
+  $styleClear.disabled = !(st.styleBy && st.styleBy.field);
+  $styleApply.disabled = true;
+
+  // Field change → update enablement
+  $styleField.onchange = () => {
+    $styleScan.disabled = !$styleField.value;
+    $styleApply.disabled = true;
+  };
+
+  // Clear mapping UI
   $styleMapWrap.innerHTML = "";
   $styleModal.removeAttribute("hidden");
 }
+
 
 $styleClose?.addEventListener("click", () => $styleModal.setAttribute("hidden","true"));
 $styleScan?.addEventListener("click", () => {
@@ -369,11 +410,11 @@ function renderMappingRowsModal(st, field, rescan=false) {
 
   // --- Select all/none master toggle
   const bulk = document.createElement("div");
-  bulk.style.margin = "0 0 6px 0";
+  bulk.className = "map-row";
   bulk.innerHTML = `
     <label style="display:flex;align-items:center;gap:6px">
       <input type="checkbox" id="styleSelectAll">
-      <span>Select all</span>
+      <span class="small-label">Select all</span>
     </label>`;
   $styleMapWrap.appendChild(bulk);
 
@@ -381,11 +422,12 @@ function renderMappingRowsModal(st, field, rescan=false) {
   const defColor = (st.styleBy && st.styleBy.field === field && st.styleBy.defaultColor)
     ? st.styleBy.defaultColor : st.color;
   const defRow = document.createElement("div");
+  defRow.className = "map-row";
   defRow.innerHTML = `
     <div style="display:flex;align-items:center;gap:8px">
-      <span class="small-label" style="min-width:60px">Default</span>
+      <span class="small-label" style="min-width:72px">Default</span>
       <input type="color" class="map-default" value="${defColor}">
-      <span class="small-label" style="opacity:.7">(used for values not listed)</span>
+      <span class="small-label" style="opacity:.7">(for values not listed)</span>
     </div>`;
   $styleMapWrap.appendChild(defRow);
 
@@ -396,15 +438,15 @@ function renderMappingRowsModal(st, field, rescan=false) {
     const color = preset || randomPastelFor(key);
     const checked = !hiddenExisting.has(key);
     const row = document.createElement("div");
+    row.className = "map-row";
     row.innerHTML = `
-      <div style="display:flex;align-items:center;gap:8px">
-        <label style="display:flex;align-items:center;gap:6px;min-width:60px">
-          <input type="checkbox" class="map-show" data-key="${escapeHtml(key)}" ${checked ? "checked" : ""}>
-          <span>Show</span>
-        </label>
-        <span class="small-label" style="min-width:120px;max-width:260px;overflow:hidden;text-overflow:ellipsis" title="${escapeHtml(key)}">${escapeHtml(key)}</span>
-        <input type="color" class="map-color" data-key="${escapeHtml(key)}" value="${color}">
-      </div>`;
+      <label style="display:flex;align-items:center;gap:6px;min-width:70px">
+        <input type="checkbox" class="map-show" data-key="${escapeHtml(key)}" ${checked ? "checked" : ""}>
+        <span class="small-label">Show</span>
+      </label>
+      <span class="small-label" style="min-width:140px;max-width:260px;overflow:hidden;text-overflow:ellipsis" title="${escapeHtml(key)}">${escapeHtml(key)}</span>
+      <input type="color" class="map-color" data-key="${escapeHtml(key)}" value="${color}">
+    `;
     $styleMapWrap.appendChild(row);
   }
 
@@ -414,8 +456,17 @@ function renderMappingRowsModal(st, field, rescan=false) {
   const refreshMaster = () => { $master.checked = allBoxes.every(b => b.checked); };
   refreshMaster();
   $master.addEventListener("change", () => { allBoxes.forEach(b => (b.checked = $master.checked)); });
-  allBoxes.forEach(b => b.addEventListener("change", refreshMaster));
+
+  // any change → allow Apply
+  [...allBoxes, $styleMapWrap.querySelector(".map-default")].forEach(el =>
+    el?.addEventListener?.("change", () => { $styleApply.disabled = false; })
+  );
+
+  $styleScan.disabled = false;
+  $styleApply.disabled = false;   // now we have rows to apply
+  $styleClear.disabled = false;
 }
+
 
 function readMappingFromModal() {
   const colors = $styleMapWrap.querySelectorAll(".map-color");

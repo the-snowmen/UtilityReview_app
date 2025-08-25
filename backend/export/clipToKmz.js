@@ -8,10 +8,8 @@ try { ({ createCanvas } = require("canvas")); }
 catch { throw new Error("Missing dependency: canvas. Install with `npm i canvas`"); }
 
 // ----------------- helpers -----------------
-const normVal = (v) => String(v ?? "").trim();          // normalize category values
-const normKeyMap = (obj={}) => Object.fromEntries(
-  Object.entries(obj).map(([k,v]) => [normVal(k), v])
-);
+const normVal = (v) => String(v ?? "").trim();
+const normKeyMap = (obj={}) => Object.fromEntries(Object.entries(obj).map(([k,v]) => [normVal(k), v]));
 const normSet = (it=[]) => new Set([...it].map(normVal));
 
 function hexToKmlColor(hex, opacity = 1) {
@@ -99,7 +97,7 @@ function drawLegendPng(layersMeta) {
     rows += Math.max(1, L.entries.length);
     rows += 1;
   }
-  const width = 240;
+  const width = 360;
   const height = Math.max(60, rows * rowH + layersMeta.length * groupPad + 24);
 
   const canvas = createCanvas(width, height);
@@ -146,7 +144,6 @@ function drawLegendPng(layersMeta) {
     }
 
     if (!L.entries.length) {
-      drawSwatch(sidePad, y + 10, L.baseColor);
       ctx.fillStyle = "#475569";
       ctx.font = "12px Segoe UI, system-ui, Arial";
       ctx.fillText("(no visible categories)", sidePad + 36, y + 10);
@@ -171,7 +168,7 @@ function escapeXml(s) {
     .replaceAll('"',"&quot;").replaceAll("'","&apos;");
 }
 
-// --------------- KML (per-layer folders) ---------------
+// --------------- KML (per-layer folders, comments support) ---------------
 function buildKmlDoc({ aoi, layers, includeAoi }) {
   const allStyles = new Map(); // styleId -> xml
 
@@ -221,9 +218,16 @@ function buildKmlDoc({ aoi, layers, includeAoi }) {
       if (val && hidden.has(val)) return ""; // skip hidden category
       const color = (val && rules[val]) || sb?.defaultColor || base;
       const sid = styleIdFor(idx, color, weight, !isPoint, isPoint ? "media/dot.png" : null);
+
+      // Comments support: if a "comment" prop exists, use as name/description
+      const comment = props.comment ? String(props.comment) : null;
+      const nameXml = `<name>${escapeXml(comment || L.name)}</name>`;
+      const descXml = comment ? `<description><![CDATA[${comment}]]></description>` : "";
+
       return `
         <Placemark>
-          <name>${escapeXml(L.name)}</name>
+          ${nameXml}
+          ${descXml}
           <styleUrl>#${sid}</styleUrl>
           ${geomToKml(f.geometry)}
         </Placemark>`;
@@ -285,27 +289,26 @@ async function exportClippedKmz(aoi, data, outPath, opts = {}) {
     const clipped = await clipWithMapshaper(L.features, aoiFC);
     if (!clipped?.features?.length) continue;
 
-    // Decide which field to keep for styling
     const keepField = L.style?.styleBy?.field || null;
 
-    // Preserve only the styling field (if any) when keepAttrs=false
+    // Preserve styling field if needed; always preserve "comment" if present
     for (const f of clipped.features) {
+      const orig = f.properties || {};
       if (!keepAttrs) {
-        const v = keepField ? f?.properties?.[keepField] : undefined;
-        f.properties = keepField && v !== undefined ? { [keepField]: v } : {};
+        const kept = {};
+        if (keepField && orig[keepField] !== undefined) kept[keepField] = orig[keepField];
+        if (orig.comment !== undefined) kept.comment = orig.comment;
+        f.properties = kept;
       }
     }
 
-    // Compute which categories actually occur after clipping (for legend)
+    // For legend: present categories inside AOI
     const present = new Set();
-    if (keepField) {
-      for (const f of clipped.features) {
-        const v = f?.properties?.[keepField];
-        if (v !== undefined && v !== null) present.add(normVal(v));
-      }
+    if (keepField) for (const f of clipped.features) {
+      const v = f?.properties?.[keepField];
+      if (v !== undefined && v !== null) present.add(normVal(v));
     }
 
-    // Build a filtered rules map for legend (only ones that are present and not hidden)
     let filteredEntries = [];
     if (L.style?.styleBy?.field) {
       const rules = normKeyMap(L.style.styleBy.rules || {});
@@ -329,17 +332,14 @@ async function exportClippedKmz(aoi, data, outPath, opts = {}) {
           hidden: Array.isArray(L.style.styleBy.hidden) ? L.style.styleBy.hidden
                 : (L.style.styleBy.hidden ? [...L.style.styleBy.hidden] : []),
         } : null,
-        // legend-use only
         _legendEntries: filteredEntries
       }
     });
   }
 
-  if (!layersClipped.length && !includeAoi) {
-    throw new Error("No visible features within AOI to export.");
-  }
+  if (!layersClipped.length && !includeAoi) throw new Error("No visible features within AOI to export.");
 
-  // Legend image (built from present categories only)
+  // Legend image
   const legendMeta = layersClipped.map(L => ({
     name: L.name,
     geomType: guessLayerGeomType(L.features),

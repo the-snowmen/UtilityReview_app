@@ -1,5 +1,5 @@
 // frontend/js/features/contextmenu.js
-import { map } from "../js/map.js";
+import { map } from "../map.js";
 
 const PRECISION = 6; // <- change this if you want more/less decimals
 

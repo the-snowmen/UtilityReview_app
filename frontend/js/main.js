@@ -5,4 +5,5 @@ import "./layers.js"; // layer helpers
 import "./ui.js";     // UI wiring
 import "./legend.js"; // Persistent on-map legend control
 
-import "../features/contextmenu.js"; // Right click for quick-action menu
+import "./features/contextmenu.js"; // Right click for quick-action menu
+//import "../features/comments.js"; // AOI Comments
