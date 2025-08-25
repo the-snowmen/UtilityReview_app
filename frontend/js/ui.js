@@ -7,6 +7,7 @@ import {
   setIdentifyMode, addDebugMarker, clearDebugMarkers,
   setCategoricalStyle, clearCategoricalStyle,
 } from "./layers.js";
+import { refreshLegend } from "./legend.js";
 
 // --- DOM
 const $basemap       = document.getElementById("basemapSelect");
@@ -54,7 +55,41 @@ let styleTargetId = null;
 $basemap?.addEventListener("change", () => switchBasemap($basemap.value));
 $btnFitAll?.addEventListener("click", () => zoomToAllVisible());
 
-// ---- AOI toggle (single source of truth)
+// ---- Import files
+$btnImport?.addEventListener("click", importFiles);
+async function importFiles() {
+  if (!window.backend?.selectFiles || !window.backend?.ingestFile) {
+    alert("IPC not available. Check preload/electron wiring.");
+    return;
+  }
+  const sel = await window.backend.selectFiles();
+  const paths = Array.isArray(sel) ? sel : sel?.paths;
+  if (!paths?.length) return;
+
+  for (const p of paths) {
+    const res = await window.backend.ingestFile(p, null);
+    if (res?.ok && res.geojson) {
+      const id = addGeoJSONLayer(res.name || p, res.geojson, true);
+      const li = buildLayerItem(id, getById(id));
+      $layerList.prepend(li);
+      setOrderFromDom($layerList);
+      syncMapOrder();
+    } else {
+      console.error("Ingest failed:", res?.error || res);
+      alert(`Failed to ingest:\n${p}\n${res?.error || ""}`);
+    }
+  }
+  refreshLegend(); // rebuild legend once after all imports
+}
+
+// ---- Layer list rebuild (from state.order)
+export function rebuildList() {
+  $layerList.innerHTML = "";
+  for (const id of state.order) $layerList.appendChild(buildLayerItem(id, getById(id)));
+  refreshLegend();
+}
+
+// ---- AOI toggle
 $btnDrawAoi?.addEventListener("click", () => {
   aoiOn = !aoiOn;
   $btnDrawAoi.classList.toggle("active", aoiOn);
@@ -109,32 +144,6 @@ window.addEventListener("keydown", (e) => {
   hideInfo();
 });
 
-// ---- Import files
-$btnImport?.addEventListener("click", importFiles);
-async function importFiles() {
-  if (!window.backend?.selectFiles || !window.backend?.ingestFile) {
-    alert("IPC not available. Check preload/electron wiring.");
-    return;
-  }
-  const sel = await window.backend.selectFiles();
-  const paths = Array.isArray(sel) ? sel : sel?.paths;
-  if (!paths?.length) return;
-
-  for (const p of paths) {
-    const res = await window.backend.ingestFile(p, null);
-    if (res?.ok && res.geojson) {
-      const id = addGeoJSONLayer(res.name || p, res.geojson, true);
-      const li = buildLayerItem(id, getById(id));
-      $layerList.prepend(li);
-      setOrderFromDom($layerList);
-      syncMapOrder();
-    } else {
-      console.error("Ingest failed:", res?.error || res);
-      alert(`Failed to ingest:\n${p}\n${res?.error || ""}`);
-    }
-  }
-}
-
 // ---- Utilities
 function escapeHtml(s) {
   return String(s ?? "")
@@ -166,7 +175,7 @@ function buildLayerItem(id, st) {
   const styleBtn = li.querySelector(".style-btn");
 
   chk.addEventListener("change", () => setVisibility(id, chk.checked));
-  removeBtn.addEventListener("click", () => { removeLayer(id); li.remove(); setOrderFromDom($layerList); });
+  removeBtn.addEventListener("click", () => { removeLayer(id); li.remove(); setOrderFromDom($layerList); refreshLegend(); });
   zoomBtn.addEventListener("click", () => zoomToLayer(id));
 
   // Drag reordering
@@ -196,7 +205,7 @@ $layerList?.addEventListener("dragover", (e) => {
   if (after == null) $layerList.appendChild(draggingEl);
   else $layerList.insertBefore(draggingEl, after);
 });
-$layerList?.addEventListener("drop", () => { setOrderFromDom($layerList); syncMapOrder(); });
+$layerList?.addEventListener("drop", () => { setOrderFromDom($layerList); syncMapOrder(); refreshLegend(); });
 
 function getDragAfterElement(container, y) {
   const els = [...container.querySelectorAll(".layer-item:not(.dragging)")];
@@ -206,11 +215,6 @@ function getDragAfterElement(container, y) {
     if (offset < 0 && offset > closest.offset) return { offset, element: child };
     return closest;
   }, { offset: Number.NEGATIVE_INFINITY }).element;
-}
-
-export function rebuildList() {
-  $layerList.innerHTML = "";
-  for (const id of state.order) $layerList.appendChild(buildLayerItem(id, getById(id)));
 }
 
 // ---- AOI export
