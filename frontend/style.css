@@ -256,3 +256,58 @@ html, body { height: 100%; margin: 0; }
   opacity: .55; cursor: not-allowed;
 }
 
+/* ==== Comments popup theme (matches your glass UI) ==== */
+.leaflet-popup.ur-ctx-pop .leaflet-popup-content-wrapper {
+  background: var(--glass-bg);
+  color: var(--text);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  box-shadow: 0 14px 34px rgba(0,0,0,0.35);
+}
+.leaflet-popup.ur-ctx-pop .leaflet-popup-tip {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+}
+.leaflet-popup.ur-ctx-pop .leaflet-popup-content { margin: 0; }
+
+/* Comments content block */
+.ur-cmt { padding: 8px; min-width: 260px; max-width: 320px; }
+.ur-cmt .hdr { display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; }
+.ur-cmt .t { font: 700 14px/1.1 system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; color:#e7eef8; }
+.ur-cmt .meta { color: var(--text-muted); font-size: 11px; margin: 2px 0 8px; }
+.ur-cmt .body { color:#e7eef8; font: 13px system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; white-space:pre-wrap; }
+.ur-cmt .row { display:flex; gap:8px; align-items:center; margin:6px 0; }
+
+/* Inputs inside the popup */
+.ur-cmt input[type="text"],
+.ur-cmt textarea,
+.ur-cmt input[type="color"] {
+  background: rgba(15,23,42,0.55);
+  color: #e7eef8;
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 10px;
+  padding: 6px 8px;
+  outline: none;
+  width: 100%;
+}
+.ur-cmt textarea { resize: none; min-height: 72px; max-height: 140px; }
+.ur-cmt input[type="color"] { width: 42px; height: 26px; border-radius: 8px; padding: 0; }
+
+/* Actions */
+.ur-cmt .actions { display:flex; gap:8px; justify-content:flex-end; margin-top:8px; }
+
+/* Reuse your small glass buttons for comments */
+.ur-ctx .ur-btn,
+.ur-cmt .ur-btn {
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(255,255,255,0.10);
+  color: #e7eef8;
+  border-radius: 10px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font: 600 12px system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+}
+.ur-cmt .ur-btn.ghost { background: rgba(255,255,255,0.08); }
+.ur-cmt .ur-btn.solid { background: #111827; border-color: #111827; color: #fff; }
+.ur-cmt .ur-btn.danger { background: #fee2e2; border-color: #fecaca; color: #b91c1c; }
+

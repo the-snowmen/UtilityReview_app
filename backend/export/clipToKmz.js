@@ -106,17 +106,17 @@ function drawLegendPng(layersMeta) {
   ctx.fillStyle = "rgba(255,255,255,0.96)";
   ctx.fillRect(0,0,width,height);
 
-  ctx.font = "12px Segoe UI, system-ui, Arial";
-  ctx.fillStyle = "#0f172a";
-  ctx.textBaseline = "middle";
+  // header bar
+  ctx.fillStyle = "#0b1324";
+  ctx.fillRect(0,0,width,28);
+  ctx.fillStyle = "#e7eef8";
+  ctx.font = "600 13px Segoe UI, system-ui, Arial";
+  ctx.fillText("Legend", sidePad, 18);
 
-  let y = 12;
-  ctx.fillStyle = "#334155";
-  ctx.font = "bold 12px Segoe UI, system-ui, Arial";
-  ctx.fillText("Legend", sidePad, y);
-  y += 16;
-
+  let y = 34;
   for (const L of layersMeta) {
+    // layer title
+    ctx.globalAlpha = 1;
     y += 6;
     ctx.font = "600 12px Segoe UI, system-ui, Arial";
     ctx.fillStyle = "#0b1324";
@@ -147,25 +147,28 @@ function drawLegendPng(layersMeta) {
       ctx.fillStyle = "#475569";
       ctx.font = "12px Segoe UI, system-ui, Arial";
       ctx.fillText("(no visible categories)", sidePad + 36, y + 10);
+      drawSwatch(sidePad+6, y+10, L.baseColor);
       y += rowH;
     } else {
-      for (const { label, color } of L.entries) {
-        drawSwatch(sidePad, y + 10, color);
-        ctx.fillStyle = "#0f172a";
+      for (const e of L.entries) {
+        drawSwatch(sidePad+6, y+10, e.color);
+        ctx.fillStyle = "#1f2937";
         ctx.font = "12px Segoe UI, system-ui, Arial";
-        ctx.fillText(label, sidePad + 36, y + 10);
+        ctx.fillText(e.label, sidePad + 36, y + 10);
         y += rowH;
       }
     }
+
     y += groupPad;
   }
+
   return canvas.toBuffer("image/png");
 }
 
 function escapeXml(s) {
   return String(s ?? "")
-    .replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")
-    .replaceAll('"',"&quot;").replaceAll("'","&apos;");
+    .replaceAll("&","&amp;").replaceAll("<","&lt;")
+    .replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&apos;");
 }
 
 // --------------- KML (per-layer folders, comments support) ---------------
@@ -216,13 +219,18 @@ function buildKmlDoc({ aoi, layers, includeAoi }) {
       const props = f.properties || {};
       const val = sb?.field ? normVal(props[sb.field]) : "";
       if (val && hidden.has(val)) return ""; // skip hidden category
-      const color = (val && rules[val]) || sb?.defaultColor || base;
+      // Per-feature color override (props.color) falls back to styleBy rules or layer base
+      const color = props.color || (val && rules[val]) || sb?.defaultColor || base;
       const sid = styleIdFor(idx, color, weight, !isPoint, isPoint ? "media/dot.png" : null);
 
-      // Comments support: if a "comment" prop exists, use as name/description
+      // Prefer title/text when present; fallback to comment; otherwise layer name
+      const title = props.title ? String(props.title).trim() : "";
+      const text  = props.text  ? String(props.text).trim()  : "";
       const comment = props.comment ? String(props.comment) : null;
-      const nameXml = `<name>${escapeXml(comment || L.name)}</name>`;
-      const descXml = comment ? `<description><![CDATA[${comment}]]></description>` : "";
+      const nameStr = title || (comment || L.name);
+      const descStr = text || ((comment && !title) ? comment : "");
+      const nameXml = `<name>${escapeXml(nameStr)}</name>`;
+      const descXml = descStr ? `<description><![CDATA[${descStr}]]></description>` : "";
 
       return `
         <Placemark>
@@ -240,36 +248,31 @@ function buildKmlDoc({ aoi, layers, includeAoi }) {
 
   const { lon, lat, range } = centroidOfPolygonlike(aoi);
 
-  return `<?xml version="1.0" encoding="UTF-8"?>
-  <kml xmlns="http://www.opengis.net/kml/2.2">
-    <Document>
-      <name>AOI Export</name>
-      <open>1</open>
-      <LookAt>
-        <longitude>${lon.toFixed(7)}</longitude>
-        <latitude>${lat.toFixed(7)}</latitude>
-        <range>${Math.max(500, Math.min(5e6, range || 200000))}</range>
-        <tilt>0</tilt>
-        <heading>0</heading>
-      </LookAt>
+  const kml = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+<Document>
+  <name>AOI Export</name>
+  <open>1</open>
 
-      ${[...allStyles.values()].join("\n")}
+  <LookAt><longitude>${lon}</longitude><latitude>${lat}</latitude><range>${Math.round(range)}</range><tilt>0</tilt><heading>0</heading></LookAt>
 
-      ${folders.join("\n")}
+  ${[...allStyles.values()].join("\n")}
 
-      <!-- ScreenOverlay legend (bottom-right) -->
-      <ScreenOverlay>
-        <name>Legend</name>
-        <Icon><href>legend.png</href></Icon>
-        <overlayXY x="1" y="0" xunits="fraction" yunits="fraction"/>
-        <screenXY  x="0.98" y="0.02" xunits="fraction" yunits="fraction"/>
-        <size      x="0" y="0" xunits="pixels"  yunits="pixels"/>
-      </ScreenOverlay>
-    </Document>
-  </kml>`;
+  ${folders.join("\n")}
+
+  <ScreenOverlay>
+    <name>Legend</name>
+    <Icon><href>legend.png</href></Icon>
+    <overlayXY x="0" y="1" xunits="fraction" yunits="fraction"/>
+    <screenXY x="0.02" y="0.98" xunits="fraction" yunits="fraction"/>
+    <size x="-1" y="-1" xunits="pixels" yunits="pixels"/>
+  </ScreenOverlay>
+</Document>
+</kml>`;
+  return kml;
 }
 
-// --------------- public API ---------------
+// --------------- main export ---------------
 async function exportClippedKmz(aoi, data, outPath, opts = {}) {
   const includeAoi = opts.includeAoi !== false;
   const keepAttrs = !!opts.keepAttributes;
@@ -291,13 +294,16 @@ async function exportClippedKmz(aoi, data, outPath, opts = {}) {
 
     const keepField = L.style?.styleBy?.field || null;
 
-    // Preserve styling field if needed; always preserve "comment" if present
+    // Preserve styling field if needed; always preserve user-facing comment/title/text/color if present
     for (const f of clipped.features) {
       const orig = f.properties || {};
       if (!keepAttrs) {
         const kept = {};
         if (keepField && orig[keepField] !== undefined) kept[keepField] = orig[keepField];
         if (orig.comment !== undefined) kept.comment = orig.comment;
+        if (orig.title   !== undefined) kept.title   = orig.title;
+        if (orig.text    !== undefined) kept.text    = orig.text;
+        if (orig.color   !== undefined) kept.color   = orig.color;
         f.properties = kept;
       }
     }
@@ -352,7 +358,7 @@ async function exportClippedKmz(aoi, data, outPath, opts = {}) {
   }));
   const legendPng = drawLegendPng(legendMeta);
 
-  // Point icon
+  // Point icon (white dot; color is applied via IconStyle color)
   const dotCanvas = createCanvas(16, 16);
   const dctx = dotCanvas.getContext("2d");
   dctx.clearRect(0,0,16,16);
@@ -360,7 +366,6 @@ async function exportClippedKmz(aoi, data, outPath, opts = {}) {
   dctx.beginPath(); dctx.arc(8,8,6,0,Math.PI*2); dctx.fill();
   const dotPng = dotCanvas.toBuffer("image/png");
 
-  // Build KML
   const kml = buildKmlDoc({ aoi: aoiFC, layers: layersClipped, includeAoi });
 
   // KMZ

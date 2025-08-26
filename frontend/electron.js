@@ -30,7 +30,7 @@ function createWindow() {
     height: 900,
     minWidth: 1024,
     minHeight: 700,
-    title: "UR App – GIS Viewer",
+    title: "UR Platform",
     show: false,
     webPreferences: {
       contextIsolation: true,

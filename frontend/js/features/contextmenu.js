@@ -17,7 +17,7 @@ function injectCssOnce() {
       min-width: 240px;
       max-width: 320px;
       color: #e7eef8;
-      background: rgba(31,41,55,0.30); /* opacity: 20% — tweak this alpha if you want */
+      background: rgba(31,41,55,0.30);
       border: 1px solid rgba(255,255,255,0.08);
       box-shadow: 0 14px 34px rgba(0,0,0,0.35);
       border-radius: 12px;
