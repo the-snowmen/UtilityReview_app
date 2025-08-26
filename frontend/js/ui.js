@@ -14,9 +14,10 @@ import { toggleCommentMode, setCommentMode, getCommentsGeoJSON, clearComments } 
 
 // --- DOM
 const $basemap       = document.getElementById("basemapSelect");
-const $btnImport     = document.getElementById("btnImport");
-const $btnFitAll     = document.getElementById("btnFitAll");
 const $layerList     = document.getElementById("layerList");
+const $layersHeader  = document.getElementById("layersHeader"); // click = Fit All
+const $btnImport     = document.getElementById("btnImport");    // now inside layers header
+
 
 const $btnDrawAoi    = document.getElementById("btnDrawAoi");
 const $aoiPanel      = document.getElementById("aoiPanel");
@@ -24,9 +25,9 @@ const $btnClearAoi   = document.getElementById("btnClearAoi");
 const $btnExportAoi  = document.getElementById("btnExportAoi");
 const $chkKeepAttrs  = document.getElementById("chkKeepAttrs");
 const $chkIncludeAoi = document.getElementById("chkIncludeAoi");
-const $btnAoiComment = document.getElementById("btnAoiComment"); // NEW
+const $btnAoiComment = document.getElementById("btnAoiComment");
 
-const $btnIdentify   = document.getElementById("btnIdentify");
+// Identify controls removed from toolbar
 const $info          = document.getElementById("infoPanel");
 const $infoClose     = document.getElementById("infoClose");
 const $infoTitle     = document.getElementById("infoTitle");
@@ -50,17 +51,18 @@ const $styleClear    = document.getElementById("styleClearBtn");
 const $styleApply    = document.getElementById("styleApplyBtn");
 const $styleMapWrap  = document.getElementById("styleMapWrap");
 
-let identifyOn = false;
 let aoiOn = false;
 let lastIdentifyMarker = null;
 let styleTargetId = null;
 
 // ---- Top controls
 $basemap?.addEventListener("change", () => switchBasemap($basemap.value));
-$btnFitAll?.addEventListener("click", () => zoomToAllVisible());
 
-// ---- Import files
-$btnImport?.addEventListener("click", importFiles);
+// ---- Fit-to-all via Layers header
+$layersHeader?.addEventListener("click", () => zoomToAllVisible());
+
+// ---- Import files (button now in Layers header)
+$btnImport?.addEventListener("click", (e) => { e.stopPropagation(); importFiles(); });
 async function importFiles() {
   if (!window.backend?.selectFiles || !window.backend?.ingestFile) {
     alert("IPC not available. Check preload/electron wiring.");
@@ -94,9 +96,10 @@ export function rebuildList() {
 }
 
 // ---- AOI toggle
-$btnDrawAoi?.addEventListener("click", () => {
+const $btnDrawAoiEl = $btnDrawAoi;
+$btnDrawAoiEl?.addEventListener("click", () => {
   aoiOn = !aoiOn;
-  $btnDrawAoi.classList.toggle("active", aoiOn);
+  $btnDrawAoiEl.classList.toggle("active", aoiOn);
   if (aoiOn) {
     $aoiPanel?.removeAttribute("hidden");
     startAoiDraw();
@@ -119,17 +122,9 @@ $btnClearAoi?.addEventListener("click", () => {
 });
 $btnExportAoi?.addEventListener("click", onExportAoiKmz);
 
-// ---- Identify toggle
-$btnIdentify?.addEventListener("click", () => {
-  identifyOn = !identifyOn;
-  $btnIdentify.classList.toggle("active", identifyOn);
-  setIdentifyMode(identifyOn);
-  if (!identifyOn) hideInfo();
-});
-
-// Feature click events (only when Identify is ON)
+// ---- Identify removed: features are ALWAYS clickable
+// Show info whenever a feature dispatches ur-identify
 window.addEventListener("ur-identify", (e) => {
-  if (!identifyOn) return;
   const d = e.detail || {};
   showInfo(d.layerName, d.properties, d.latlng);
   if (lastIdentifyMarker) { try { map.removeLayer(lastIdentifyMarker); } catch {} lastIdentifyMarker = null; }
@@ -139,9 +134,8 @@ window.addEventListener("ur-identify", (e) => {
 // Info panel close
 $infoClose?.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); hideInfo(); }, { capture: true });
 
-// Map background click closes info (but not during identify)
+// Map background click closes info
 map.on("click", (e) => {
-  if (identifyOn) return;
   const onVector = e.originalEvent?.target?.closest?.(".leaflet-interactive");
   if (!onVector) hideInfo();
 });
@@ -151,7 +145,7 @@ window.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
   if (aoiOn) {
     aoiOn = false;
-    $btnDrawAoi?.classList.remove("active");
+    $btnDrawAoiEl?.classList.remove("active");
     $aoiPanel?.setAttribute("hidden", "true");
     stopAoiDraw();
     setCommentMode(false);
@@ -311,7 +305,7 @@ function showInfo(title, props, latlng) {
     const rows = Object.entries(props || {}).map(([k, v]) =>
       `<tr><th>${escapeHtml(k)}</th><td>${escapeHtml(v)}</td></tr>`
     ).join("");
-    const loc = latlng ? `<div style="margin:6px 0 8px 0;color:#64748b">
+    const loc = latlng ? `<div style="margin:6px 0 8px 0;color:#94a3b8">
       <small>Clicked at ${fmtLL(latlng)}</small>
     </div>` : "";
     $infoBody.innerHTML = loc + (rows ? `<table>${rows}</table>` : "<em>No attributes</em>");
@@ -376,7 +370,6 @@ function openStyleModal(id) {
   $styleModal.removeAttribute("hidden");
 }
 
-
 $styleClose?.addEventListener("click", () => $styleModal.setAttribute("hidden","true"));
 $styleScan?.addEventListener("click", () => {
   if (!styleTargetId) return;
@@ -437,14 +430,15 @@ function renderMappingRowsModal(st, field, rescan=false) {
     const preset = rescan ? null : rulesExisting[key];
     const color = preset || randomPastelFor(key);
     const checked = !hiddenExisting.has(key);
+
     const row = document.createElement("div");
     row.className = "map-row";
     row.innerHTML = `
-      <label style="display:flex;align-items:center;gap:6px;min-width:70px">
+      <span class="map-value" title="${escapeHtml(key)}">${escapeHtml(key)}</span>
+      <label class="map-show-wrap">
         <input type="checkbox" class="map-show" data-key="${escapeHtml(key)}" ${checked ? "checked" : ""}>
         <span class="small-label">Show</span>
       </label>
-      <span class="small-label" style="min-width:140px;max-width:260px;overflow:hidden;text-overflow:ellipsis" title="${escapeHtml(key)}">${escapeHtml(key)}</span>
       <input type="color" class="map-color" data-key="${escapeHtml(key)}" value="${color}">
     `;
     $styleMapWrap.appendChild(row);
@@ -463,10 +457,9 @@ function renderMappingRowsModal(st, field, rescan=false) {
   );
 
   $styleScan.disabled = false;
-  $styleApply.disabled = false;   // now we have rows to apply
+  $styleApply.disabled = false;
   $styleClear.disabled = false;
 }
-
 
 function readMappingFromModal() {
   const colors = $styleMapWrap.querySelectorAll(".map-color");

@@ -104,8 +104,8 @@ export function addGeoJSONLayer(name, geojson, prependToTop = true) {
     paneName,
     layer: null,
     source,
-    interactive: false,
-    styleBy: null, // { field, rules:{val:color}, defaultColor, hidden:Set<string> }
+    interactive: true,            // ALWAYS interactive now (identify removed)
+    styleBy: null,                // { field, rules:{val:color}, defaultColor, hidden:Set<string> }
   };
 
   buildLeafletLayer(source, st, st.interactive);
@@ -191,14 +191,9 @@ export function zoomToAllVisible() {
   if (hasAny) map.fitBounds(bounds, { padding: [24, 24] });
 }
 
-export function setIdentifyMode(on) {
-  for (const id of state.order) {
-    const st = getById(id); if (!st) continue;
-    st.interactive = !!on;
-    buildLeafletLayer(st.source, st, st.interactive);
-    if (!st.visible) { try { map.removeLayer(st.layer); } catch {} }
-  }
-  syncMapOrder();
+// Identify toggle was removed; keep no-op for backward compatibility if anything imports it
+export function setIdentifyMode(_on) {
+  // no-op — features are always interactive now
 }
 
 export function addDebugMarker(lat, lng, label = "") {
