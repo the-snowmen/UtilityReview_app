@@ -4,7 +4,7 @@
 const fsp = require("fs/promises");
 const path = require("path");
 const shapefile = require("shapefile");
-const { detectSrcEpsgFromPrj, reprojectGeoJSON } = require("../reproject");
+const { detectSrcEpsgFromPrj, reprojectGeoJSON } = require("./reproject");
 const proj4 = require("proj4");
 
 function sampleXY(coords) {

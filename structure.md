@@ -1,26 +1,41 @@
-# -----------------------------
-# Project Structure (proposed)
-# -----------------------------
+```
 project-root/
-├── backend/
-│   ├── ingest/
-│   │   ├── index.js              # dispatches to the right reader based on file type
-│   │   ├── shapefile.js          # .shp reader using `shapefile` + reprojection
-│   │   └── kmlKmz.js             # .kml/.kmz/.zip via mapshaper -> GeoJSON
-│   ├── reproject.js              # all reprojection utilities live here
-│   └── util.js                   # (optional) shared fs helpers (not critical now)
+├── backend/ # Backend logic (Node.js side)
+│ ├── export/ # Export-related modules
+│ │ └── clipToKmz.js # Handles clipping layers/geometry and exporting to KMZ
+│ │
+│ ├── ingest/ # File ingestion (import) modules
+│ │ ├── index.js # Main entry point for file ingestion
+│ │ ├── kmlkmz.js # KML/KMZ reader
+│ │ ├── shapefile.js # Shapefile (.shp/.dbf) reader
+│ │ └── reproject.js # CRS reprojection helpers
+│ │
+│ └── util.js # General-purpose utilities
 │
-├── frontend/
-│   ├── electron.js               # Electron main (updated)
-│   ├── preload.js                # IPC surface (updated)
-│   ├── index.html                # Loads modules with <script type="module">
-│   ├── style.css                 # Minor tweaks for controls
-│   └── js/
-│       ├── main.js               # App bootstrap (imports others)
-│       ├── map.js                # Leaflet map + basemaps + controls
-│       ├── store.js              # Central state for layers
-│       ├── layers.js             # Add/remove/layer styling + z-order logic
-│       └── ui.js                 # Panel UI (list, drag handle, opacity, zoom)
+├── frontend/ # Frontend (Electron renderer / UI)
+│ ├── js/ # All JS modules for the frontend
+│ │ ├── features/ # Feature-specific modules
+│ │ │ ├── comments.js # Comment feature (add/edit/delete pins)
+│ │ │ ├── contextmenu.js # Right-click context menu logic
+│ │ │ └── search.js # Coordinate search bar integration
+│ │ │
+│ │ ├── layers.js # Layer management (add/remove/set style/visibility)
+│ │ ├── legend.js # Legend control and rendering
+│ │ ├── main.js # App entry for the frontend
+│ │ ├── map.js # Map initialization and Leaflet integration
+│ │ ├── store.js # In-memory state store
+│ │ └── ui.js # UI controls and layer list management
+│ │
+│ ├── electron.js # Main Electron process (window creation, IPC handlers)
+│ ├── preload.js # Preload script (exposes safe IPC API to renderer)
+│ ├── index.html # Frontend HTML entrypoint
+│ └── style.css # Global styles for the app
 │
-├── package.json                  # unchanged deps; just new IPC channel name
-└── README.md
+├── node_modules/ # Installed npm dependencies
+│
+├── .gitignore # Git ignore rules
+├── package.json # Project metadata and dependencies
+├── package-lock.json # Dependency lock file
+├── README.md # Project overview and instructions
+└── structure.md # This file (project structure documentation)
+```
