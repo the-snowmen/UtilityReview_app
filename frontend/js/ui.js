@@ -345,16 +345,18 @@ function openStyleModal(id) {
   $styleBaseWeight.value = st.weight ?? 2;
   $styleBaseOpacity.value = st.opacity ?? 1;
 
-  // Change handlers (immediate apply)
+  // Immediate apply for base style
   $styleBaseColor.oninput = () => { st.color = $styleBaseColor.value; applyLayerStyle(id); };
   $styleBaseWeight.oninput = () => { st.weight = clampNum($styleBaseWeight.value, 0, 20, st.weight); $styleBaseWeight.value = st.weight; applyLayerStyle(id); };
   $styleBaseOpacity.oninput = () => { st.opacity = clampNum($styleBaseOpacity.value, 0, 1, st.opacity); $styleBaseOpacity.value = st.opacity; applyLayerStyle(id); };
 
-  // Populate field list
+  // Populate field list (keeps current field selected if present)
   $styleField.innerHTML = `<option value="">(choose)</option>` +
-    (st.propKeys || []).map(k => `<option value="${escapeHtml(k)}"${st.styleBy?.field===k?' selected':''}>${escapeHtml(k)}</option>`).join("");
+    (st.propKeys || []).map(k =>
+      `<option value="${escapeHtml(k)}"${st.styleBy?.field===k?' selected':''}>${escapeHtml(k)}</option>`
+    ).join("");
 
-  // Button states
+  // Initial button states
   $styleScan.disabled  = !$styleField.value;
   $styleClear.disabled = !(st.styleBy && st.styleBy.field);
   $styleApply.disabled = true;
@@ -363,12 +365,26 @@ function openStyleModal(id) {
   $styleField.onchange = () => {
     $styleScan.disabled = !$styleField.value;
     $styleApply.disabled = true;
+    $styleMapWrap.innerHTML = "";
   };
 
   // Clear mapping UI
   $styleMapWrap.innerHTML = "";
+
+  // >>> NEW: if a field is already selected (from prior styling),
+  // auto-render the mapping rows using existing rules/hidden/default.
+  if ($styleField.value) {
+    renderMappingRowsModal(st, $styleField.value, /*rescan=*/false);
+    $styleScan.disabled = false;
+    $styleClear.disabled = !!(st.styleBy && st.styleBy.field);
+    // Nothing changed yet — keep Apply disabled until user edits
+    $styleApply.disabled = true;
+  }
+  // <<< NEW
+
   $styleModal.removeAttribute("hidden");
 }
+
 
 $styleClose?.addEventListener("click", () => $styleModal.setAttribute("hidden","true"));
 $styleScan?.addEventListener("click", () => {
