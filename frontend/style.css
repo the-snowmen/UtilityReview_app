@@ -1,21 +1,40 @@
-/* Fullscreen map */
+/* =========================
+   Fullscreen map
+========================= */
 html, body { height: 100%; margin: 0; }
 #map { position: fixed; inset: 0; }
 
-/* THEME TOKENS */
+/* =========================
+   THEME TOKENS
+========================= */
 :root{
   --panel-w: 320px;
   --panel-gap: 18px;
   --hud-h: 44px;
+  --hud-pad-x: 10px;
+
   --glass-bg: rgba(31,41,55,0.72);
   --glass-border: rgba(255,255,255,0.10);
+
   --card-bg: rgba(255,255,255,0.06);
   --card-border: rgba(255,255,255,0.10);
+
   --text: #e5e7eb;
   --text-muted: #cbd5e1;
 }
 
-/* FLOATING LAYERS PANEL */
+/* HUD */
+.hud { padding: 6px var(--hud-pad-x); }
+
+/* Coordinate search popover */
+.coord-pop {
+  left: calc(var(--panel-gap) + var(--hud-pad-x));
+  bottom: calc(var(--panel-gap) + var(--hud-h) + 8px);
+}
+
+/* =========================
+   FLOATING LAYERS PANEL
+========================= */
 .layers-panel {
   position: fixed;
   top: var(--panel-gap);
@@ -33,6 +52,25 @@ html, body { height: 100%; margin: 0; }
   border-radius: 16px;
   box-shadow: 0 20px 40px rgba(0,0,0,0.35);
   color: var(--text);
+
+  /* Scroll behavior + themed scrollbars */
+  overscroll-behavior: contain;
+  scrollbar-width: thin;  /* Firefox */
+  scrollbar-color: rgba(148,163,184,.6) rgba(15,23,42,.2);
+}
+.layers-panel::-webkit-scrollbar { width: 10px; }
+.layers-panel::-webkit-scrollbar-track {
+  background: rgba(15,23,42,.25);
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.06);
+}
+.layers-panel::-webkit-scrollbar-thumb {
+  background: rgba(148,163,184,.65);
+  border-radius: 8px;
+  border: 2px solid rgba(15,23,42,.25);
+}
+.layers-panel::-webkit-scrollbar-thumb:hover {
+  background: rgba(226,232,240,.9);
 }
 
 /* Title */
@@ -52,13 +90,33 @@ html, body { height: 100%; margin: 0; }
   list-style: none;
   margin: 0;
   padding: 0;
-  overflow: auto;
+  overflow-y: auto;   /* only vertical scroll */
+  overflow-x: hidden; /* kill horizontal bar */
   flex: 1 1 auto;
   display: grid;
   gap: 8px;
+
+  /* Themed scrollbar for the inner list, too */
+  overscroll-behavior: contain;
+  scrollbar-width: thin;  /* Firefox */
+  scrollbar-color: rgba(148,163,184,.6) rgba(15,23,42,.2);
+}
+.layers-list::-webkit-scrollbar { width: 10px; }
+.layers-list::-webkit-scrollbar-track {
+  background: rgba(15,23,42,.25);
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.06);
+}
+.layers-list::-webkit-scrollbar-thumb {
+  background: rgba(148,163,184,.65);
+  border-radius: 8px;
+  border: 2px solid rgba(15,23,42,.25);
+}
+.layers-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(226,232,240,.9);
 }
 
-/* Layer item = pill card */
+/* Layer item */
 .layer-item {
   background: var(--card-bg);
   border: 1px solid var(--card-border);
@@ -67,15 +125,26 @@ html, body { height: 100%; margin: 0; }
   color: var(--text);
 }
 .layer-top { display:flex; align-items:center; gap:8px; }
-.layer-name { flex:1 1 auto; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+/* Long names → ellipsis (no horizontal scroll) */
+.layer-item .layer-name {
+  flex: 1 1 auto;
+  min-width: 0;       /* allows shrink inside flex for ellipsis */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 /* Small pill buttons */
 .drag-handle, .zoom-btn, .remove-btn, .style-btn,
-.pill { border: 1px solid rgba(255,255,255,0.12);
+.pill {
+  border: 1px solid rgba(255,255,255,0.12);
   background: rgba(255,255,255,0.10);
   color: var(--text);
   border-radius: 999px; padding: 6px 10px; cursor: pointer;
-  font: 600 12px system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; }
+  font: 600 12px system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  flex: 0 0 auto;
+}
 .pill:hover { background: rgba(255,255,255,0.18); }
 .pill.ghost { background: rgba(255,255,255,0.08); }
 
@@ -88,7 +157,9 @@ html, body { height: 100%; margin: 0; }
 /* Leaflet left controls shifted so they don't sit under the panel */
 .leaflet-left { left: calc(var(--panel-w) + var(--panel-gap) + 10px); }
 
-/* Top-right compact toolbar */
+/* =========================
+   Top-right compact toolbar
+========================= */
 .topbar {
   position: fixed; top: 18px; right: 18px;
   display:flex; align-items:center; gap:8px;
@@ -106,7 +177,9 @@ html, body { height: 100%; margin: 0; }
 }
 .select-wrap select option { background:#ffffff; color:#111827; }
 
-/* AOI panel */
+/* =========================
+   AOI + Info panels
+========================= */
 .aoi-panel[hidden],
 .info-panel[hidden] { display: none !important; }
 
@@ -120,88 +193,10 @@ html, body { height: 100%; margin: 0; }
 }
 .aoi-panel .inline { display:inline-flex; align-items:center; gap:6px; }
 
-/* ---------- HUD ---------- */
-.hud {
-  position: fixed;
-  left: var(--panel-gap);
-  bottom: var(--panel-gap);
-  background: rgba(0,0,0,0.55);
-  color: #f1f5f9;
-  border-radius: 8px;
-  padding: 6px 10px;
-  font: 12px system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-  z-index: 1100;
-  border: 1px solid rgba(255,255,255,0.15);
-  white-space: nowrap;
-}
-.hud .sep { opacity:.65; margin:0 8px; }
-
-/* ----- HUD center button with subtle icon ----- */
-.hud-center-btn {
-  display: inline-flex; align-items: center; gap: 6px;
-  border: 1px solid rgba(255,255,255,0.12);
-  background: rgba(255,255,255,0.06);
-  color: #e5e7eb; border-radius: 8px; padding: 3px 8px;
-  font: 12px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-  cursor: pointer;
-}
-.hud-center-btn .hudCenterHint { opacity: .8; font-weight: 700; }
-.hud-center-btn:hover { background: rgba(255,255,255,0.12); }
-
-/* ----- Coordinate search popover ----- */
-.coord-pop {
-  position: fixed;
-  /* anchor near HUD-left but never spill horizontally */
-  left: var(--panel-gap);
-  bottom: calc(var(--panel-gap) + 52px);
-  /* clamp width to viewport */
-  width: min(340px, calc(100vw - 32px));
-  box-sizing: border-box;
-
-  background: rgba(31,41,55,0.92);
-  color: #e5e7eb;
-  border: 1px solid rgba(255,255,255,0.10);
-  border-radius: 12px;
-  box-shadow: 0 18px 44px rgba(0,0,0,0.42);
-  backdrop-filter: blur(8px);
-  z-index: 1300;
-}
-.coord-pop[hidden] { display: none !important; }
-
-.coord-head {
-  display:flex; align-items:center; justify-content:space-between;
-  padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.10);
-  color: #cbd5e1; text-transform: uppercase; font: 700 12px/1 system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-}
-.coord-head strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width: 75%; }
-
-.coord-body { padding: 10px; display: grid; gap: 8px; }
-
-#coordInput {
-  width: 100%;
-  min-width: 0;
-  max-width: 100%;
-  padding: 8px 10px;
-  border-radius: 10px;
-  border: 1px solid rgba(255,255,255,0.14);
-  background: rgba(15,23,42,0.55);
-  color: #e5e7eb;
-  outline: none;
-  font: 13px system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-  box-sizing: border-box;            /* prevents spill */
-}
-
-.coord-row { display:flex; align-items:center; gap: 10px; flex-wrap: wrap; }
-.radio { display:inline-flex; align-items:center; gap:6px; }
-.hint { color:#cbd5e1; opacity:.75; }
-
-/* Leaflet zoom bottom-right */
-.leaflet-control-zoom { margin: 0 12px 12px 0; }
-
-/* ===== Identify / Info panel (glass theme) ===== */
+/* Identify / Info panel (glass theme) */
 .info-panel {
   position: fixed; right:14px; bottom:28px; width:360px; max-height:50%;
-  background: rgba(31,41,55,0.92);          /* glassy dark */
+  background: rgba(31,41,55,0.92);
   color: #e5e7eb;
   border-radius: 12px; z-index:1200;
   box-shadow:0 18px 44px rgba(0,0,0,0.42); overflow:hidden;
@@ -218,18 +213,179 @@ html, body { height: 100%; margin: 0; }
 #infoClose { cursor:pointer; border:none; background:transparent; font-size:16px; line-height:1; padding:4px 6px; color:#e5e7eb; }
 #infoClose:hover { opacity:.85; }
 
-.info-body { padding:10px; overflow:auto; font:13px system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; }
+.info-body {
+  padding:10px;
+  overflow:auto;
+  font:13px system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+
+  /* Themed scrollbar for info scroll area */
+  overscroll-behavior: contain;
+  scrollbar-width: thin;  /* Firefox */
+  scrollbar-color: rgba(148,163,184,.6) rgba(15,23,42,.2);
+}
+.info-body::-webkit-scrollbar { width: 10px; }
+.info-body::-webkit-scrollbar-track {
+  background: rgba(15,23,42,.25);
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.06);
+}
+.info-body::-webkit-scrollbar-thumb {
+  background: rgba(148,163,184,.65);
+  border-radius: 8px;
+  border: 2px solid rgba(15,23,42,.25);
+}
+.info-body::-webkit-scrollbar-thumb:hover {
+  background: rgba(226,232,240,.9);
+}
+
 .info-body table { width:100%; border-collapse:collapse; }
 .info-body th, .info-body td { text-align:left; padding:6px 8px; border-bottom:1px solid rgba(255,255,255,0.08); vertical-align:top; }
 .info-body th { width:38%; color:#cbd5e1; font-weight:600; }
 
-/* ===== Style Modal (unchanged except theme tokens above) ===== */
+/* =========================
+   HUD
+========================= */
+.hud {
+  position: fixed;
+  left: var(--panel-gap);
+  bottom: var(--panel-gap);
+  background: rgba(0,0,0,0.6);
+  color: #f1f5f9;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font: 12px system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  z-index: 1100;
+  border: 1px solid rgba(255,255,255,0.15);
+  white-space: nowrap;
+}
+.hud .sep { opacity:.65; margin:0 8px; }
+
+/* HUD center button */
+.hud-center-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.06);
+  color: #e5e7eb; border-radius: 8px; padding: 3px 8px;
+  font: 12px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  cursor: pointer;
+}
+.hud-center-btn .hudCenterHint { opacity: .8; font-weight: 700; }
+.hud-center-btn:hover { background: rgba(255,255,255,0.12); }
+
+/* =========================
+   Coordinate search popover
+========================= */
+.coord-pop {
+  position: fixed;
+  bottom: calc(var(--panel-gap) + var(--hud-h) + 8px);
+  max-width: calc(100vw - 32px);
+  box-sizing: border-box;
+
+  background: rgba(31,41,55,0.65);
+  color: #e5e7eb;
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 12px;
+  z-index: 1300;
+  width: min(340px, 92vw);
+}
+
+
+.coord-pop[hidden] { display: none !important; }
+
+.coord-head {
+  display:flex; align-items:center; justify-content:space-between;
+  padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.10);
+  color: #cbd5e1; text-transform: uppercase; font: 700 12px/1 system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+}
+.coord-head strong {
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width: 75%;
+}
+.coord-body { padding: 10px; display: grid; gap: 8px; }
+
+/* Input: lighter glass, crisp focus ring */
+#coordInput {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(255,255,255,0.10);
+  color: #f8fafc;
+  outline: none;
+  font: 13px system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  backdrop-filter: blur(6px);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
+}
+
+#coordInput::placeholder { color: rgba(229,231,235,0.6); }
+#coordInput:focus {
+  border-color: rgba(255,255,255,0.28);
+  box-shadow:
+    0 0 0 2px rgba(255,255,255,0.10),    /* soft outer */
+    inset 0 1px 0 rgba(255,255,255,0.08);
+}
+
+/* Radio row: compact, aligned */
+.coord-row { display:flex; align-items:center; gap: 12px; flex-wrap: wrap; }
+.radio { display:inline-flex; align-items:center; gap:6px; font-size: 13px; color:#e5e7eb; }
+.radio input[type="radio"] { accent-color: #93c5fd; }   /* subtle blue dot */
+
+/* Make the header divider subtler so the input feels anchored */
+.coord-head {
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.08); /* slightly lighter */
+}
+
+/* Optional: lighter, glassier panel */
+.coord-pop {
+  background: rgba(31,41,55,0.60);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255,255,255,0.08);
+}
+
+.hint { color:#cbd5e1; opacity:.75; }
+
+/* =========================
+   Style Modal
+========================= */
 .modal { position: fixed; inset: 0; background: rgba(2,6,23,0.55); z-index: 1400; display:grid; place-items:center; }
 .modal[hidden] { display:none; }
-.modal-box { width: 680px; max-height: 78vh; overflow:auto; background: rgba(31,41,55,0.92); color: #e5e7eb; border-radius: 16px; border: 1px solid rgba(255,255,255,0.10); box-shadow: 0 22px 48px rgba(0,0,0,0.45); backdrop-filter: blur(8px); }
-.modal-head { display:flex; align-items:center; justify-content:space-between; padding: 12px 14px; border-bottom: 1px solid rgba(255,255,255,0.08); font: 700 14px/1.1 system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; color: #cbd5e1; letter-spacing: .04em; text-transform: uppercase; }
+.modal-box {
+  width: 680px; max-height: 78vh; overflow:auto;
+  background: rgba(31,41,55,0.92); color: #e5e7eb;
+  border-radius: 16px; border: 1px solid rgba(255,255,255,0.10);
+  box-shadow: 0 22px 48px rgba(0,0,0,0.45); backdrop-filter: blur(8px);
+
+  /* Themed scrollbar for modal content */
+  overscroll-behavior: contain;
+  scrollbar-width: thin;  /* Firefox */
+  scrollbar-color: rgba(148,163,184,.6) rgba(15,23,42,.2);
+}
+.modal-box::-webkit-scrollbar { width: 10px; }
+.modal-box::-webkit-scrollbar-track {
+  background: rgba(15,23,42,.25);
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.06);
+}
+.modal-box::-webkit-scrollbar-thumb {
+  background: rgba(148,163,184,.65);
+  border-radius: 8px;
+  border: 2px solid rgba(15,23,42,.25);
+}
+.modal-box::-webkit-scrollbar-thumb:hover {
+  background: rgba(226,232,240,.9);
+}
+
+.modal-head {
+  display:flex; align-items:center; justify-content:space-between;
+  padding: 12px 14px; border-bottom: 1px solid rgba(255,255,255,0.08);
+  font: 700 14px/1.1 system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  color: #cbd5e1; letter-spacing: .04em; text-transform: uppercase;
+}
 #styleModalClose.pill { background: rgba(255,255,255,0.10); color: #e5e7eb; border: 1px solid rgba(255,255,255,0.12); }
 #styleModalClose.pill:hover { background: rgba(255,255,255,0.16); }
+
 .modal-body { padding: 14px; }
 .modal-body .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:10px; }
 .modal-body label { color:#cbd5e1; font-size:13px; display:flex; gap:6px; align-items:center; }
@@ -242,27 +398,44 @@ html, body { height: 100%; margin: 0; }
 }
 .modal-body select { padding: 6px 10px; min-width: 200px; }
 .modal-body input[type="number"] { width: 86px; }
-.modal-body input[type="color"] { appearance: none; border: 1px solid rgba(255,255,255,0.25); width: 42px; height: 26px; border-radius: 8px; padding:0; background: transparent; }
+.modal-body input[type="color"] {
+  appearance: none; border: 1px solid rgba(255,255,255,0.25);
+  width: 42px; height: 26px; border-radius: 8px; padding:0; background: transparent;
+}
 
 /* Style-by-field mapping rows */
 .mapping .map-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 6px 0;
+  display: flex; align-items: center; gap: 10px; margin: 6px 0;
 }
 .mapping .map-value {
   flex: 1 1 auto;
   min-width: 140px;
   max-width: 260px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.mapping .map-show-wrap {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
+.mapping .map-show-wrap { display: inline-flex; align-items:center; gap: 6px; }
 .mapping .small-label { font-size: 12px; color: #cbd5e1; opacity: .9; }
 
+/* =========================
+   Legend (extra: scrollbar theme if you move CSS from JS)
+========================= */
+.ur-legend {
+  /* If you ever decide to style the legend from CSS instead of injected CSS */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148,163,184,.6) rgba(15,23,42,.2);
+  overscroll-behavior: contain;
+}
+.ur-legend::-webkit-scrollbar { width: 10px; }
+.ur-legend::-webkit-scrollbar-track {
+  background: rgba(15,23,42,.25);
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.06);
+}
+.ur-legend::-webkit-scrollbar-thumb {
+  background: rgba(148,163,184,.65);
+  border-radius: 8px;
+  border: 2px solid rgba(15,23,42,.25);
+}
+.ur-legend::-webkit-scrollbar-thumb:hover {
+  background: rgba(226,232,240,.9);
+}

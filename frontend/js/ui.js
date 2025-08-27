@@ -55,6 +55,23 @@ let aoiOn = false;
 let lastIdentifyMarker = null;
 let styleTargetId = null;
 
+// Prevent scroll → map zoom on floating panels
+const $layersPanel = document.querySelector(".layers-panel");
+if ($layersPanel) {
+  L.DomEvent.disableScrollPropagation($layersPanel);
+}
+
+const $infoPanel = document.getElementById("infoPanel");
+if ($infoPanel) {
+  L.DomEvent.disableScrollPropagation($infoPanel);
+}
+
+const $coordSearch = document.getElementById("coordSearch");
+if ($coordSearch) {
+  L.DomEvent.disableScrollPropagation($coordSearch);
+}
+
+
 // ---- Top controls
 $basemap?.addEventListener("change", () => switchBasemap($basemap.value));
 

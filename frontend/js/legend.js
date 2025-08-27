@@ -59,6 +59,27 @@ function injectCssOnce() {
       max-width: 320px;
       max-height: 44vh;
       overflow: auto;
+      overscroll-behavior: contain; /* avoid scroll chaining to the map */
+
+      /* Firefox scrollbar colors */
+      scrollbar-width: thin;
+      scrollbar-color: rgba(148,163,184,.6) rgba(15,23,42,.2);
+    }
+
+     /* WebKit scrollbars */
+    .ur-legend::-webkit-scrollbar { width: 10px; }
+    .ur-legend::-webkit-scrollbar-track {
+      background: rgba(15,23,42,.25);
+      border-radius: 8px;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.06);
+    }
+    .ur-legend::-webkit-scrollbar-thumb {
+      background: rgba(148,163,184,.65); /* slate-400-ish */
+      border-radius: 8px;
+      border: 2px solid rgba(15,23,42,.25); /* creates the inset look */
+    }
+    .ur-legend::-webkit-scrollbar-thumb:hover {
+      background: rgba(226,232,240,.9); /* lighter on hover */
     }
     .ur-legend h4 {
       font-size: 11px;
@@ -117,6 +138,8 @@ control.onAdd = function() {
   div = L.DomUtil.create("div", "ur-legend");
   div.innerHTML = `<h4>Legend</h4><div class="muted">No visible layers</div>`;
   L.DomEvent.disableClickPropagation(div);
+  L.DomEvent.disableScrollPropagation(div); // ← prevent map wheel zoom when hovering legend
+
   // Toggle expand/collapse via delegation
   div.addEventListener("click", (e) => {
     const hdr = e.target.closest(".group .hdr");
