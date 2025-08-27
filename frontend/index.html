@@ -100,6 +100,35 @@
       </div>
     </div>
 
+    <!-- Style Modal -->
+    <div id="styleModal" class="modal" hidden>
+      <div class="modal-box">
+        <div class="modal-head">
+          <div id="styleModalTitle">Style</div>
+          <button id="styleModalClose" class="pill" title="Close">✕</button>
+        </div>
+
+        <div class="modal-body">
+          <div class="row">
+            <label>Base Color <input type="color" id="styleBaseColor" value="#ff3333"></label>
+            <label>Weight <input type="number" id="styleBaseWeight" min="1" max="20" value="2"></label>
+            <label>Opacity <input type="number" id="styleBaseOpacity" step="0.1" min="0" max="1" value="1"></label>
+          </div>
+
+          <div class="row">
+            <label for="styleFieldSelect">Style by field</label>
+            <select id="styleFieldSelect"></select>
+            <button id="styleScanBtn" class="pill" disabled>Scan</button>
+            <button id="styleClearBtn" class="pill ghost" disabled>Clear</button>
+            <button id="styleApplyBtn" class="pill" disabled>Apply</button>
+          </div>
+
+          <div id="styleMapWrap" class="mapping"></div>
+        </div>
+      </div>
+    </div>
+
+
     <!-- Scripts -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
     <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js" crossorigin=""></script>
