@@ -1,5 +1,5 @@
 // frontend/js/layers.js
-import { map, sharedCanvas } from "./map.js";
+import { map } from "./map.js";
 import { state, nextId, getById } from "./store.js";
 import { refreshLegend } from "./legend.js";
 
@@ -36,6 +36,13 @@ function colorForFeature(st, feature) {
 function buildLeafletLayer(source, st, interactive) {
   if (st.layer) { try { map.removeLayer(st.layer); } catch {} st.layer = null; }
 
+  // Reuse a per-layer renderer that's anchored to this layer's pane.
+  // (One canvas per pane -> pane z-index now controls stacking.)
+  if (!st.renderer) {
+    st.renderer = L.canvas({ padding: 0.5, tolerance: 3, pane: st.paneName });
+  }
+  const paneRenderer = st.renderer;
+
   const styleFn = (feature) => {
     const color = colorForFeature(st, feature);
     return {
@@ -49,13 +56,14 @@ function buildLeafletLayer(source, st, interactive) {
 
   const layer = L.geoJSON(source, {
     pane: st.paneName,
-    renderer: sharedCanvas,
+    renderer: paneRenderer,
     interactive,
     style: styleFn,
     filter: (feature) => !isHiddenByCategory(st, feature),
     pointToLayer: (feature, latlng) =>
       L.circleMarker(latlng, {
         pane: st.paneName,
+        renderer: paneRenderer,
         interactive,
         radius: Math.max(3, st.weight + 1),
         color: colorForFeature(st, feature),
