@@ -1,5 +1,5 @@
 // frontend/js/ui.js
-import { map, switchBasemap, startAoiDraw, clearAoi, getAoiGeoJSON, stopAoiDraw } from "./map.js";
+import { map, switchBasemap, startAoiDraw, clearAoi, getAoiGeoJSON, stopAoiDraw, setAoiFromGeoJSON } from "./map.js";
 import { state, setOrderFromDom, getById } from "./store.js";
 import {
   addGeoJSONLayer, removeLayer, applyLayerStyle, setVisibility,
@@ -16,8 +16,9 @@ import { toggleCommentMode, setCommentMode, getCommentsGeoJSON, clearComments } 
 const $basemap       = document.getElementById("basemapSelect");
 const $layerList     = document.getElementById("layerList");
 const $layersHeader  = document.getElementById("layersHeader"); // click = Fit All
-const $btnImport     = document.getElementById("btnImport");    // now inside layers header
-
+const $btnImport     = document.getElementById("btnImport");    // inside layers header
+// Optional dedicated KML/KMZ import (if you add a button with this id)
+const $btnImportKmx  = document.getElementById("btnImportKmxLayer");
 
 const $btnDrawAoi    = document.getElementById("btnDrawAoi");
 const $aoiPanel      = document.getElementById("aoiPanel");
@@ -71,7 +72,6 @@ if ($coordSearch) {
   L.DomEvent.disableScrollPropagation($coordSearch);
 }
 
-
 // ---- Top controls
 $basemap?.addEventListener("change", () => switchBasemap($basemap.value));
 
@@ -80,6 +80,25 @@ $layersHeader?.addEventListener("click", () => zoomToAllVisible());
 
 // ---- Import files (button now in Layers header)
 $btnImport?.addEventListener("click", (e) => { e.stopPropagation(); importFiles(); });
+
+// Optional: dedicated KML/KMZ import (uses backend.importKmxAsLayer if present)
+$btnImportKmx?.addEventListener("click", async (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  if (!window.backend?.importKmxAsLayer) {
+    // fall back to generic import dialog
+    return importFiles();
+  }
+  const meta = await window.backend.importKmxAsLayer();
+  if (!meta || !meta.ok || !meta.fc) return;
+  const id = addGeoJSONLayer(meta.name, meta.fc, true);
+  const li = buildLayerItem(id, getById(id));
+  $layerList.prepend(li);
+  setOrderFromDom($layerList);
+  syncMapOrder();
+  refreshLegend();
+});
+
 async function importFiles() {
   if (!window.backend?.selectFiles || !window.backend?.ingestFile) {
     alert("IPC not available. Check preload/electron wiring.");
@@ -139,6 +158,37 @@ $btnClearAoi?.addEventListener("click", () => {
 });
 $btnExportAoi?.addEventListener("click", onExportAoiKmz);
 
+// --- AOI from KML/KMZ button
+const $btnAoiFromKmx = document.getElementById("btn-aoi-from-kmz");
+$btnAoiFromKmx?.addEventListener("click", async (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+
+  if (!window.backend?.aoiPickKmx) {
+    alert("AOI import not wired: expose aoiPickKmx in preload/electron.");
+    return;
+  }
+
+  const res = await window.backend.aoiPickKmx();
+  if (!res || res.canceled) return;
+
+  if (!res.ok || !res.feature) {
+    console.error("AOI import error:", res?.error);
+    alert("Failed to import KML/KMZ: " + (res?.error || "Unknown error"));
+    return;
+  }
+
+  try {
+    setAoiFromGeoJSON(res.feature);
+    // ensure AOI panel visible so user can export/clear
+    $aoiPanel?.removeAttribute("hidden");
+  } catch (err) {
+    console.error("setAoiFromGeoJSON failed:", err);
+    alert("Could not set AOI from file.");
+  }
+});
+
+
 // ---- Identify removed: features are ALWAYS clickable
 // Show info whenever a feature dispatches ur-identify
 window.addEventListener("ur-identify", (e) => {
@@ -191,6 +241,7 @@ function buildLayerItem(id, st) {
       <div class="layer-name" title="${escapeHtml(st.name)}">${escapeHtml(st.name)}</div>
       <button class="zoom-btn" title="Zoom to this layer">⤢</button>
       <input type="checkbox" class="chk" ${st.visible ? "checked" : ""} title="Show/Hide"/>
+      <button class="aoi-btn" title="Use layer polygons as AOI">AOI</button>
       <button class="style-btn" title="Style">Style</button>
       <button class="remove-btn" title="Remove">✕</button>
     </div>`;
@@ -198,12 +249,14 @@ function buildLayerItem(id, st) {
   const chk = li.querySelector(".chk");
   const removeBtn = li.querySelector(".remove-btn");
   const zoomBtn = li.querySelector(".zoom-btn");
+  const aoiBtn = li.querySelector(".aoi-btn");
   const dragHandle = li.querySelector(".drag-handle");
   const styleBtn = li.querySelector(".style-btn");
 
   chk.addEventListener("change", () => setVisibility(id, chk.checked));
   removeBtn.addEventListener("click", () => { removeLayer(id); li.remove(); setOrderFromDom($layerList); refreshLegend(); });
   zoomBtn.addEventListener("click", () => zoomToLayer(id));
+  aoiBtn.addEventListener("click", () => useLayerAsAoi(id));
 
   // Drag reordering
   dragHandle.setAttribute("draggable", "true");
@@ -244,13 +297,51 @@ function getDragAfterElement(container, y) {
   }, { offset: Number.NEGATIVE_INFINITY }).element;
 }
 
+// ---- AOI: build from a layer’s polygons
+function useLayerAsAoi(id) {
+  const st = getById(id);
+  if (!st?.source?.features?.length) {
+    alert("That layer has no features.");
+    return;
+  }
+  const aoiFeature = mergePolysToAoiFeature(st.source);
+  if (!aoiFeature) {
+    alert("This layer has no polygons to use as an AOI.");
+    return;
+  }
+  try {
+    setAoiFromGeoJSON(aoiFeature);
+    // ensure AOI panel is visible so user can export
+    $aoiPanel?.removeAttribute("hidden");
+  } catch (err) {
+    console.error("setAoiFromGeoJSON failed:", err);
+    alert("Could not set AOI from this layer.");
+  }
+}
+
+// Collect all Polygon/MultiPolygon rings → single Feature (Polygon or MultiPolygon)
+function mergePolysToAoiFeature(fc) {
+  const polys = [];
+  for (const f of fc.features) {
+    const g = f?.geometry;
+    if (!g) continue;
+    if (g.type === "Polygon") polys.push(g.coordinates);
+    else if (g.type === "MultiPolygon") polys.push(...g.coordinates);
+  }
+  if (!polys.length) return null;
+  if (polys.length === 1) {
+    return { type: "Feature", properties: { name: "AOI" }, geometry: { type: "Polygon", coordinates: polys[0] } };
+  }
+  return { type: "Feature", properties: { name: "AOI" }, geometry: { type: "MultiPolygon", coordinates: polys } };
+}
+
 // ---- AOI export (includes Comments layer if any)
 async function onExportAoiKmz(e) {
   e?.preventDefault?.();
   e?.stopPropagation?.();
 
   const aoi = getAoiGeoJSON();
-  if (!aoi) { alert("Draw an AOI polygon first."); return; }
+  if (!aoi) { alert("Draw or set an AOI first."); return; }
 
   const layersForExport = [];
 
@@ -388,20 +479,16 @@ function openStyleModal(id) {
   // Clear mapping UI
   $styleMapWrap.innerHTML = "";
 
-  // >>> NEW: if a field is already selected (from prior styling),
-  // auto-render the mapping rows using existing rules/hidden/default.
+  // If a field already styled, render mapping rows from existing rules
   if ($styleField.value) {
     renderMappingRowsModal(st, $styleField.value, /*rescan=*/false);
     $styleScan.disabled = false;
     $styleClear.disabled = !!(st.styleBy && st.styleBy.field);
-    // Nothing changed yet — keep Apply disabled until user edits
     $styleApply.disabled = true;
   }
-  // <<< NEW
 
   $styleModal.removeAttribute("hidden");
 }
-
 
 $styleClose?.addEventListener("click", () => $styleModal.setAttribute("hidden","true"));
 $styleScan?.addEventListener("click", () => {

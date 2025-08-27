@@ -5,7 +5,7 @@
 const fsp = require("fs/promises");
 const path = require("path");
 const { readShapefileToGeoJSON } = require("./shapefile");
-const { readKmlKmzZipToGeoJSON } = require("./kmlKmz");
+const { readKmlKmzZipToGeoJSON } = require("./kmz");
 
 async function ingestAny(filePath, srcEpsg = null) {
   const ext = path.extname(filePath).toLowerCase();

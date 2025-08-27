@@ -81,6 +81,7 @@ function injectCssOnce() {
     .ur-legend::-webkit-scrollbar-thumb:hover {
       background: rgba(226,232,240,.9); /* lighter on hover */
     }
+      
     .ur-legend h4 {
       font-size: 11px;
       text-transform: uppercase;

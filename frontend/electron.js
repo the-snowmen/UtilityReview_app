@@ -2,6 +2,7 @@
 const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
 const path = require("path");
 const { ingestAny } = require("../backend/ingest/index.js");
+const { kmlFileToFC, kmzFileToFC, guessLayerName } = require("../backend/ingest/kmz");
 
 // --- DEV: auto reload (electron-reload) -------------------------------
 // Enabled when the app is NOT packaged (works for `npm start` or `npm run dev`)
@@ -136,5 +137,21 @@ ipcMain.handle("export-aoi-kmz", async (_evt, payload = {}) => {
   } catch (e) {
     console.error("[export-aoi-kmz]", e);
     return { ok: false, error: String(e?.message || e) };
+  }
+});
+
+// AOI from KML/KMZ: open dialog, parse, return AOI feature
+ipcMain.handle("aoi:pick-kmx", async () => {
+  const { canceled, filePaths } = await dialog.showOpenDialog({
+    properties: ["openFile"],
+    filters: [{ name: "KML/KMZ", extensions: ["kml", "kmz"] }],
+  });
+  if (canceled || !filePaths?.[0]) return { canceled: true };
+
+  try {
+    const feature = await fileToAoiFeature(filePaths[0]);
+    return { ok: true, feature };
+  } catch (err) {
+    return { ok: false, error: err?.message || String(err) };
   }
 });

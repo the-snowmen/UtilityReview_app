@@ -20,6 +20,8 @@
     exportAoiKmz: (aoi, features, suggestedName = "aoi_export.kmz") =>
       safeInvoke("export-aoi-kmz", { aoi, features, suggestedName }),
 
+    aoiPickKmx: () => ipcRenderer.invoke("aoi:pick-kmx"),
+
     // Diagnostics
     ping: () => "preload ✅",
   });

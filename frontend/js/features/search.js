@@ -110,11 +110,15 @@ async function go() {
   const ll = interpret(pair, mode);
   if (!ll) { alert("Coordinates out of bounds."); return; }
 
-  const currentZ = map.getZoom();
-  const targetZ = currentZ < 10 ? 14 : currentZ;
-  map.setView([ll[0], ll[1]], targetZ);
+  // Zoom to 18 (cap by map's maxZoom just in case)
+  const desiredZoom = 17;
+  const maxZoom = typeof map.getMaxZoom === "function" ? (map.getMaxZoom() ?? 19) : 19;
+  const targetZ = Math.min(desiredZoom, maxZoom);
+
+  map.setView([ll[0], ll[1]], targetZ, { animate: true });
   closeSearch();
 }
+
 
 // ---------- Wiring ----------
 $openBtn?.addEventListener("click", (e) => { e.preventDefault(); openSearch(true); });
