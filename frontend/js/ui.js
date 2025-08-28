@@ -1,6 +1,6 @@
 // frontend/js/ui.js
-import { map, switchBasemap, startAoiDraw, clearAoi, getAoiGeoJSON, stopAoiDraw, setAoiFromGeoJSON } from "./map.js";
-import { state, setOrderFromDom, getById } from "./store.js";
+import { map, switchBasemap, startAoiDraw, clearAoi, getAoiGeoJSON, stopAoiDraw, setAoiFromGeoJSON } from "./map/map.js";
+import { state, setOrderFromDom, getById } from "./core/store.js";
 import {
   addGeoJSONLayer, removeLayer, setVisibility,
   syncMapOrder, zoomToLayer,

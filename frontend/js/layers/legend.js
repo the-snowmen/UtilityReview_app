@@ -1,6 +1,6 @@
 // frontend/js/legend.js
-import { map } from "./map.js";
-import { state, getById } from "./store.js";
+import { map } from "../map/map.js";
+import { state, getById } from "../core/store.js";
 
 // Keep per-layer collapsed state across refreshes (keyed by layer id)
 const collapsed = new Map();

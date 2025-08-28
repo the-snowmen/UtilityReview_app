@@ -1,6 +1,6 @@
 // frontend/js/layers.js
-import { map } from "./map.js";
-import { state, nextId, getById } from "./store.js";
+import { map } from "../map/map.js";
+import { state, nextId, getById } from "../core/store.js";
 import { refreshLegend } from "./legend.js";
 
 // Track temporary identify/debug markers so we can remove them.

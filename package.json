@@ -1,27 +1,12 @@
 {
-  "name": "electron-shapefile-viewer",
-  "version": "1.0.0",
-  "description": "Minimal Electron GIS app to import and view Shapefiles with flexible encodings + CRS handling",
-  "main": "frontend/electron.js",
-  "type": "commonjs",
+  "name": "ur-app",
+  "private": true,
   "scripts": {
-    "start": "electron .",
-    "dev": "electron ."
-  },
-  "dependencies": {
-    "@tmcw/togeojson": "^5.8.1",
-    "@turf/turf": "^7.2.0",
-    "@xmldom/xmldom": "^0.8.11",
-    "canvas": "^3.2.0",
-    "electron": "^31.3.0",
-    "iconv-lite": "^0.6.3",
-    "jszip": "^3.10.1",
-    "mapshaper": "^0.6.110",
-    "proj4": "^2.19.10",
-    "shapefile": "^0.6.6",
-    "tokml": "^0.4.0"
+    "dev": "concurrently -k -n PY,EL \"cd backend_py && uvicorn app.main:app --host 127.0.0.1 --port 5178\" \"cd frontend && electron .\"",
+    "electron": "cd frontend && electron ."
   },
   "devDependencies": {
-    "electron-reload": "^2.0.0-alpha.1"
+    "concurrently": "^9.0.0",
+    "electron": "^31.0.0"
   }
 }
