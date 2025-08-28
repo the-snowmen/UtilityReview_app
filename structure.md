@@ -17,6 +17,8 @@ project-root/
 │ │ ├── features/ # Feature-specific modules
 │ │ │ ├── comments.js # Comment feature (add/edit/delete pins)
 │ │ │ ├── contextmenu.js # Right-click context menu logic
+| | | ├── aoi.js
+| | | ├── kmx-layer.js
 │ │ │ └── search.js # Coordinate search bar integration
 │ │ │
 │ │ ├── layers.js # Layer management (add/remove/set style/visibility)

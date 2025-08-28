@@ -1,28 +1,22 @@
-// frontend/preload.js (guarded to avoid double-injects from bundlers)
+// frontend/preload.js
 (() => {
   if (globalThis.__UR_PRELOAD__) return;
-
   const { contextBridge, ipcRenderer } = require("electron");
 
-  const safeInvoke = (channel, payload) =>
-    ipcRenderer.invoke(channel, payload).catch(err => ({ ok: false, error: String(err) }));
+  const call = (chn, payload) =>
+    ipcRenderer.invoke(chn, payload).catch(err => ({ ok:false, error:String(err?.message||err) }));
 
   contextBridge.exposeInMainWorld("backend", {
-    // File selection & ingest
-    selectFiles: () => safeInvoke("select-files"),
-    ingestFile: (filePath, srcEpsg = null) => safeInvoke("ingest-file", { path: filePath, srcEpsg }),
+    selectFiles: () => call("select-files"),
+    ingestFile:  (path, srcEpsg=null) => call("ingest-file", { path, srcEpsg }),
 
-    // Back-compat
-    selectShapefiles: () => safeInvoke("select-files"),
-    ingestShapefile: (p, s = null) => safeInvoke("ingest-file", { path: p, srcEpsg: s }),
+    // AOI helpers
+    aoiPickKmx: () => call("aoi:pick-kmx"),
 
-    // AOI export
-    exportAoiKmz: (aoi, features, suggestedName = "aoi_export.kmz") =>
-      safeInvoke("export-aoi-kmz", { aoi, features, suggestedName }),
+    // Export
+    exportAoiKmz: (aoi, data, suggestedName="aoi_export.kmz", opts={}) =>
+      call("export-aoi-kmz", { aoi, data, suggestedName, opts }),
 
-    aoiPickKmx: () => ipcRenderer.invoke("aoi:pick-kmx"),
-
-    // Diagnostics
     ping: () => "preload ✅",
   });
 

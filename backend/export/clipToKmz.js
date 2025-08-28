@@ -3,14 +3,16 @@ const fsp = require("fs/promises");
 const path = require("path");
 const JSZip = require("jszip");
 const mapshaper = require("mapshaper");
+
 let createCanvas;
 try { ({ createCanvas } = require("canvas")); }
 catch { throw new Error("Missing dependency: canvas. Install with `npm i canvas`"); }
 
-// ----------------- helpers -----------------
-const normVal = (v) => String(v ?? "").trim();
-const normKeyMap = (obj={}) => Object.fromEntries(Object.entries(obj).map(([k,v]) => [normVal(k), v]));
-const normSet = (it=[]) => new Set([...it].map(normVal));
+// ---------- utils ----------
+const normVal   = v => String(v ?? "").trim();
+const normKey   = s => String(s ?? "");
+const normKeyMap = (obj = {}) => Object.fromEntries(Object.entries(obj).map(([k,v]) => [normKey(k), v]));
+const normSet    = (it = []) => new Set([...it].map(normVal));
 
 function hexToKmlColor(hex, opacity = 1) {
   const h = String(hex || "#ff3333").replace("#", "");
@@ -24,14 +26,16 @@ function eachCoord(geom, fn) {
   if (!geom) return;
   const t = geom.type, C = geom.coordinates;
   if (t === "Point") return fn(C);
-  if (t === "MultiPoint" || t === "LineString") return C.forEach(fn);
-  if (t === "MultiLineString" || t === "Polygon") return C.flat(1).forEach(fn);
+  if (t === "MultiPoint") return C.forEach(fn);
+  if (t === "LineString") return C.forEach(fn);
+  if (t === "MultiLineString") return C.flat(1).forEach(fn);
+  if (t === "Polygon") return C.flat(1).forEach(fn);
   if (t === "MultiPolygon") return C.flat(2).forEach(fn);
   if (t === "GeometryCollection") return geom.geometries.forEach(g => eachCoord(g, fn));
 }
 
 function centroidOfPolygonlike(fc) {
-  let minX=Infinity, minY=Infinity, maxX=-Infinity, maxY=-Infinity;
+  let minX= Infinity, minY= Infinity, maxX= -Infinity, maxY= -Infinity;
   for (const f of fc?.features || []) {
     eachCoord(f.geometry, ([x,y]) => {
       if (x<minX) minX=x; if (y<minY) minY=y;
@@ -40,22 +44,23 @@ function centroidOfPolygonlike(fc) {
   }
   if (minX === Infinity) return { lon:-96, lat:39, range:1200000 };
   const lon = (minX+maxX)/2, lat = (minY+maxY)/2;
-  const dx = maxX-minX, dy = maxY-minY;
-  const km = Math.max(dx,dy) * 111;
-  const range = Math.max(500, Math.min(5e6, km*1000*2.2));
+  const dx = maxX - minX, dy = maxY - minY;
+  const km = Math.max(dx, dy) * 111;
+  const range = Math.max(500, Math.min(5e6, km * 1000 * 2.2));
   return { lon, lat, range };
 }
 
 function geomToKml(geom) {
-  const esc = (n)=>Number(n).toFixed(7);
-  const coords1 = (arr)=>arr.map(([x,y])=>`${esc(x)},${esc(y)},0`).join(" ");
-  const polygon = (rings)=>`
+  const esc = n => Number(n).toFixed(7);
+  const coords1 = arr => arr.map(([x,y]) => `${esc(x)},${esc(y)},0`).join(" ");
+  const polygon = rings => `
     <Polygon><tessellate>1</tessellate>
       <outerBoundaryIs><LinearRing><coordinates>${coords1(rings[0])}</coordinates></LinearRing></outerBoundaryIs>
       ${rings.slice(1).map(h=>`<innerBoundaryIs><LinearRing><coordinates>${coords1(h)}</coordinates></LinearRing></innerBoundaryIs>`).join("")}
     </Polygon>`;
-  const line = (pts)=>`<LineString><tessellate>1</tessellate><coordinates>${coords1(pts)}</coordinates></LineString>`;
-  const point = (pt)=>`<Point><coordinates>${esc(pt[0])},${esc(pt[1])},0</coordinates></Point>`;
+  const line = pts => `<LineString><tessellate>1</tessellate><coordinates>${coords1(pts)}</coordinates></LineString>`;
+  const point = pt => `<Point><coordinates>${esc(pt[0])},${esc(pt[1])},0</coordinates></Point>`;
+
   const t = geom?.type;
   if (t === "Polygon") return polygon(geom.coordinates);
   if (t === "MultiPolygon") return geom.coordinates.map(polygon).join("");
@@ -68,45 +73,58 @@ function geomToKml(geom) {
 }
 
 function guessLayerGeomType(fc) {
-  const f = fc?.features?.find?.(x => x?.geometry?.type);
-  return f?.geometry?.type || "Unknown";
-}
-
-// --------------- mapshaper clip ---------------
-async function clipWithMapshaper(layerFC, aoiFC) {
-  const inputs = {
-    "aoi.json": JSON.stringify(aoiFC),
-    "src.json": JSON.stringify(layerFC),
-  };
-  const cmd = [
-    "-i aoi.json name=aoi",
-    "-i src.json name=src",
-    "-clip target=src source=aoi",
-    "-o format=geojson precision=0.000001 clipped.json"
-  ].join(" ");
-  const out = await mapshaper.applyCommands(cmd, inputs);
-  return JSON.parse(out["clipped.json"] || '{"type":"FeatureCollection","features":[]}');
-}
-
-// --------------- legend image ---------------
-function drawLegendPng(layersMeta) {
-  const rowH = 20, titleH = 18, groupPad = 10, sidePad = 12;
-  let rows = 0;
-  for (const L of layersMeta) {
-    rows += 1;
-    rows += Math.max(1, L.entries.length);
-    rows += 1;
+  let hasPoint=false, hasLine=false, hasPoly=false;
+  for (const f of fc?.features || []) {
+    const t = f.geometry?.type;
+    if (t === "Point" || t === "MultiPoint") hasPoint = true;
+    else if (t === "LineString" || t === "MultiLineString") hasLine = true;
+    else if (t === "Polygon" || t === "MultiPolygon") hasPoly = true;
   }
-  const width = 360;
-  const height = Math.max(60, rows * rowH + layersMeta.length * groupPad + 24);
+  return hasPoint ? "Point" : hasLine ? "LineString" : hasPoly ? "Polygon" : "Unknown";
+}
+
+/** FIX: proper in-memory mapshaper call + correct layer names (no ".json" suffix) */
+async function clipWithMapshaper(fc, aoiFC) {
+  const cmd = [
+    "-i", "src.json", "name=src",
+    "-i", "aoi.json", "name=aoi",
+    "-clip", "target=src", "aoi",
+    "-o", "format=geojson", "out.json"
+  ].join(" ");
+
+  const inputs = {
+    "src.json": JSON.stringify(fc),
+    "aoi.json": JSON.stringify(aoiFC),
+  };
+
+  const res = await mapshaper.runCommands(cmd, inputs);
+  const out = JSON.parse(res["out.json"] || "{}");
+
+  if (!out || !out.type) return { type: "FeatureCollection", features: [] };
+  if (out.type === "FeatureCollection") return out;
+  if (out.type === "Feature") return { type: "FeatureCollection", features: [out] };
+  return { type: "FeatureCollection", features: [] };
+}
+
+function drawLegendPng(layersMeta) {
+  const width = 320;
+  const sidePad = 12;
+  const titleH = 16;
+
+  let height = 28 + 12;
+  for (const L of layersMeta) {
+    height += titleH + 8;
+    const rows = L.entries?.length ? L.entries.length : 1;
+    height += rows * 22 + 6;
+  }
 
   const canvas = createCanvas(width, height);
   const ctx = canvas.getContext("2d");
+  ctx.imageSmoothingEnabled = true;
 
   ctx.fillStyle = "rgba(255,255,255,0.96)";
   ctx.fillRect(0,0,width,height);
 
-  // header bar
   ctx.fillStyle = "#0b1324";
   ctx.fillRect(0,0,width,28);
   ctx.fillStyle = "#e7eef8";
@@ -115,7 +133,6 @@ function drawLegendPng(layersMeta) {
 
   let y = 34;
   for (const L of layersMeta) {
-    // layer title
     ctx.globalAlpha = 1;
     y += 6;
     ctx.font = "600 12px Segoe UI, system-ui, Arial";
@@ -132,36 +149,32 @@ function drawLegendPng(layersMeta) {
         const r = Math.max(3, w + 2);
         ctx.beginPath(); ctx.arc(x+10, cy, r, 0, Math.PI*2);
         ctx.fillStyle = colorHex; ctx.globalAlpha = op; ctx.fill(); ctx.globalAlpha = 1;
-        ctx.strokeStyle = "#333"; ctx.lineWidth = 0.5; ctx.stroke();
+        ctx.strokeStyle = colorHex; ctx.lineWidth = 1; ctx.stroke();
       } else if (g.includes("Line")) {
-        ctx.strokeStyle = colorHex; ctx.lineWidth = w; ctx.globalAlpha = op;
-        ctx.beginPath(); ctx.moveTo(x, cy); ctx.lineTo(x+24, cy); ctx.stroke(); ctx.globalAlpha = 1;
+        ctx.beginPath();
+        ctx.lineWidth = w;
+        ctx.strokeStyle = colorHex; ctx.globalAlpha = op;
+        ctx.moveTo(x, cy); ctx.lineTo(x+38, cy); ctx.stroke();
+        ctx.globalAlpha = 1;
       } else {
-        ctx.fillStyle = colorHex; ctx.globalAlpha = op;
-        ctx.fillRect(x, cy-6, 24, 12); ctx.globalAlpha = 1;
-        ctx.strokeStyle = "#777"; ctx.lineWidth = 1; ctx.strokeRect(x, cy-6, 24, 12);
+        ctx.fillStyle = colorHex; ctx.globalAlpha = Math.max(0.15, Math.min(1, op * 0.6));
+        ctx.fillRect(x, cy-7, 38, 14);
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = colorHex; ctx.lineWidth = Math.max(1, Math.min(3, w));
+        ctx.strokeRect(x, cy-7, 38, 14);
       }
     }
 
-    if (!L.entries.length) {
-      ctx.fillStyle = "#475569";
+    const entries = (L.entries?.length ? L.entries : [{ label: "Features", color: L.baseColor }]);
+    for (const ent of entries) {
+      drawSwatch(sidePad, y+8, ent.color || L.baseColor);
+      ctx.fillStyle = "#0b1324";
       ctx.font = "12px Segoe UI, system-ui, Arial";
-      ctx.fillText("(no visible categories)", sidePad + 36, y + 10);
-      drawSwatch(sidePad+6, y+10, L.baseColor);
-      y += rowH;
-    } else {
-      for (const e of L.entries) {
-        drawSwatch(sidePad+6, y+10, e.color);
-        ctx.fillStyle = "#1f2937";
-        ctx.font = "12px Segoe UI, system-ui, Arial";
-        ctx.fillText(e.label, sidePad + 36, y + 10);
-        y += rowH;
-      }
+      ctx.fillText(String(ent.label ?? ""), sidePad + 52, y + 12);
+      y += 22;
     }
-
-    y += groupPad;
+    y += 6;
   }
-
   return canvas.toBuffer("image/png");
 }
 
@@ -171,40 +184,45 @@ function escapeXml(s) {
     .replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&apos;");
 }
 
-// --------------- KML (per-layer folders, comments support) ---------------
-function buildKmlDoc({ aoi, layers, includeAoi }) {
-  const allStyles = new Map(); // styleId -> xml
+function buildKmlDoc({ aoi, layers, includeAoi, kmlName = "AOI Export" }) {
+  const styles = new Map();
+  const safeId = s => String(s).replace(/[^A-Za-z0-9_\-]/g, "_");
+  const styleIdFor = (layerIdx, colorHex, weight, kind) => {
+    const key = `s_${layerIdx}_${safeId(String(colorHex).replace("#",""))}_${Math.max(1,weight)}_${kind}`;
+    if (styles.has(key)) return key;
 
-  function styleIdFor(layerIdx, color, weight, isPolyOrLine, pointIconHref) {
-    const key = `${layerIdx}|${color}|${weight}|${isPolyOrLine?"pl":"pt"}`;
-    if (allStyles.has(key)) return key;
-    const kmlColor = hexToKmlColor(color, 1);
+    const kmlColor = hexToKmlColor(colorHex, 1);
+    const kmlFill  = hexToKmlColor(colorHex, 0.6);
     const line = `<LineStyle><color>${kmlColor}</color><width>${Math.max(1, weight)}</width></LineStyle>`;
-    const poly = `<PolyStyle><color>${hexToKmlColor(color, 0.6)}</color><fill>1</fill><outline>1</outline></PolyStyle>`;
-    const icon = pointIconHref
-      ? `<IconStyle><color>${kmlColor}</color><scale>${Math.max(0.6, Math.min(4, weight/2))}</scale><Icon><href>${pointIconHref}</href></Icon></IconStyle>`
+    const poly = (kind === "pl") ? `<PolyStyle><color>${kmlFill}</color><fill>1</fill><outline>1</outline></PolyStyle>` : "";
+    const iconScale = Math.max(0.8, Math.min(2, 0.6 + Number(weight) * 0.2));
+    const icon = (kind === "pt")
+      ? `<IconStyle><color>${kmlColor}</color><scale>${iconScale.toFixed(2)}</scale><Icon><href>media/dot.png</href></Icon></IconStyle>`
       : "";
-    const xml = `<Style id="${key}">${icon}${line}${poly}</Style>`;
-    allStyles.set(key, xml);
+
+    styles.set(key, `<Style id="${key}">${icon}${line}${poly}</Style>`);
     return key;
-  }
+  };
 
   const folders = [];
 
-  // Optional AOI folder
   if (includeAoi && (aoi?.features?.length)) {
     const aoiStyle = `
       <Style id="aoi-style">
         <LineStyle><color>${hexToKmlColor("#ff5a5f", 1)}</color><width>2</width></LineStyle>
-        <PolyStyle><color>${hexToKmlColor("#ff9aa2", 0.25)}</color></PolyStyle>
+        <PolyStyle><color>${hexToKmlColor("#ff9aa2", 0.3)}</color><fill>1</fill><outline>1</outline></PolyStyle>
       </Style>`;
-    allStyles.set("aoi-style", aoiStyle);
-    const aoiPlm = (aoi.features || []).map(f => `
-      <Placemark><name>AOI</name><styleUrl>#aoi-style</styleUrl>${geomToKml(f.geometry)}</Placemark>`).join("\n");
-    folders.push(`<Folder><name>AOI</name>${aoiPlm}</Folder>`);
+    const aoiPlcs = (aoi.features || []).map(f => `
+      <Placemark>
+        <name>AOI</name>
+        <styleUrl>#aoi-style</styleUrl>
+        ${geomToKml(f.geometry)}
+      </Placemark>
+    `).join("\n");
+    folders.push(`<Folder><name>AOI</name>${aoiPlcs}</Folder>`);
+    styles.set("aoi-style", aoiStyle);
   }
 
-  // One folder per (clipped) layer
   layers.forEach((L, idx) => {
     const base = L.style?.baseColor || "#ff3333";
     const weight = Number(L.style?.weight ?? 2);
@@ -218,17 +236,17 @@ function buildKmlDoc({ aoi, layers, includeAoi }) {
     const feats = (L.features.features || []).map(f => {
       const props = f.properties || {};
       const val = sb?.field ? normVal(props[sb.field]) : "";
-      if (val && hidden.has(val)) return ""; // skip hidden category
-      // Per-feature color override (props.color) falls back to styleBy rules or layer base
-      const color = props.color || (val && rules[val]) || sb?.defaultColor || base;
-      const sid = styleIdFor(idx, color, weight, !isPoint, isPoint ? "media/dot.png" : null);
+      if (val && hidden.has(val)) return "";
 
-      // Prefer title/text when present; fallback to comment; otherwise layer name
+      const color = props.color || (val && rules[val]) || sb?.defaultColor || base;
+      const sid = styleIdFor(idx, color, weight, isPoint ? "pt" : "pl");
+
       const title = props.title ? String(props.title).trim() : "";
       const text  = props.text  ? String(props.text).trim()  : "";
       const comment = props.comment ? String(props.comment) : null;
       const nameStr = title || (comment || L.name);
       const descStr = text || ((comment && !title) ? comment : "");
+
       const nameXml = `<name>${escapeXml(nameStr)}</name>`;
       const descXml = descStr ? `<description><![CDATA[${descStr}]]></description>` : "";
 
@@ -248,42 +266,42 @@ function buildKmlDoc({ aoi, layers, includeAoi }) {
 
   const { lon, lat, range } = centroidOfPolygonlike(aoi);
 
+  const stylesXml = [...styles.values()].join("\n");
   const kml = `<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2">
 <Document>
-  <name>AOI Export</name>
+  <name>${escapeXml(kmlName)}</name>
   <open>1</open>
 
-  <LookAt><longitude>${lon}</longitude><latitude>${lat}</latitude><range>${Math.round(range)}</range><tilt>0</tilt><heading>0</heading></LookAt>
+  <LookAt>
+    <longitude>${lon}</longitude><latitude>${lat}</latitude>
+    <altitude>0</altitude><range>${Math.round(range)}</range><tilt>0</tilt><heading>0</heading>
+  </LookAt>
 
-  ${[...allStyles.values()].join("\n")}
-
-  ${folders.join("\n")}
+  ${stylesXml}
 
   <ScreenOverlay>
     <name>Legend</name>
     <Icon><href>legend.png</href></Icon>
-    <overlayXY x="0" y="1" xunits="fraction" yunits="fraction"/>
-    <screenXY x="0.02" y="0.98" xunits="fraction" yunits="fraction"/>
-    <size x="-1" y="-1" xunits="pixels" yunits="pixels"/>
+    <overlayXY x="1" y="0" xunits="fraction" yunits="fraction"/>
+    <screenXY  x="0.98" y="0.05" xunits="fraction" yunits="fraction"/>
+    <size x="0" y="0" xunits="pixels" yunits="pixels"/>
   </ScreenOverlay>
+
+  ${folders.join("\n")}
 </Document>
 </kml>`;
   return kml;
 }
 
-// --------------- main export ---------------
 async function exportClippedKmz(aoi, data, outPath, opts = {}) {
   const includeAoi = opts.includeAoi !== false;
-  const keepAttrs = !!opts.keepAttributes;
+  const keepAttrs  = !!opts.keepAttributes; // we set false from main
+  const kmlName    = String(opts.kmlName || "AOI Export");
 
-  // AOI -> FC
   const aoiFC = (aoi?.type === "FeatureCollection") ? aoi : { type: "FeatureCollection", features: [aoi] };
 
-  // Normalize layers input
-  const layersIn = Array.isArray(data)
-    ? data
-    : [{ name: "Layer", style: { baseColor: "#ff3333", weight: 2, opacity: 1 }, features: data }];
+  const layersIn = Array.isArray(data) ? data : [{ name: "Layer", style: { baseColor: "#ff3333", weight: 2, opacity: 1 }, features: data }];
 
   const layersClipped = [];
   for (const L of layersIn) {
@@ -294,34 +312,34 @@ async function exportClippedKmz(aoi, data, outPath, opts = {}) {
 
     const keepField = L.style?.styleBy?.field || null;
 
-    // Preserve styling field if needed; always preserve user-facing comment/title/text/color if present
     for (const f of clipped.features) {
       const orig = f.properties || {};
       if (!keepAttrs) {
         const kept = {};
-        if (keepField && orig[keepField] !== undefined) kept[keepField] = orig[keepField];
-        if (orig.comment !== undefined) kept.comment = orig.comment;
-        if (orig.title   !== undefined) kept.title   = orig.title;
-        if (orig.text    !== undefined) kept.text    = orig.text;
-        if (orig.color   !== undefined) kept.color   = orig.color;
+        if (orig.title) kept.title = orig.title;
+        if (orig.text)  kept.text  = orig.text;
+        if (orig.color) kept.color = orig.color;
+        if (orig.comment) kept.comment = orig.comment;
+        if (keepField && (orig[keepField] !== undefined)) kept[keepField] = orig[keepField];
         f.properties = kept;
       }
     }
 
-    // For legend: present categories inside AOI
     const present = new Set();
-    if (keepField) for (const f of clipped.features) {
-      const v = f?.properties?.[keepField];
-      if (v !== undefined && v !== null) present.add(normVal(v));
+    if (keepField) {
+      for (const f of clipped.features) {
+        const v = f?.properties?.[keepField];
+        if (v !== undefined && v !== null) present.add(normVal(v));
+      }
     }
 
     let filteredEntries = [];
-    if (L.style?.styleBy?.field) {
-      const rules = normKeyMap(L.style.styleBy.rules || {});
+    if (L.style?.styleBy) {
+      const rules  = normKeyMap(L.style.styleBy.rules || {});
       const hidden = normSet(L.style.styleBy.hidden || []);
       filteredEntries = [...present]
         .filter(k => !hidden.has(k))
-        .map(k => ({ key: k, color: rules[k] || L.style.styleBy.defaultColor || L.style?.baseColor || "#ff3333" }));
+        .map(k => ({ key: k, color: rules[k] || L.style.styleBy.defaultColor || L.style.baseColor || "#ff3333" }));
     }
 
     layersClipped.push({
@@ -335,17 +353,17 @@ async function exportClippedKmz(aoi, data, outPath, opts = {}) {
           field: L.style.styleBy.field,
           rules: normKeyMap(L.style.styleBy.rules || {}),
           defaultColor: L.style.styleBy.defaultColor || (L.style?.baseColor || "#ff3333"),
-          hidden: Array.isArray(L.style.styleBy.hidden) ? L.style.styleBy.hidden
-                : (L.style.styleBy.hidden ? [...L.style.styleBy.hidden] : []),
+          hidden: Array.isArray(L.style.styleBy.hidden) ? L.style.styleBy.hidden : [],
         } : null,
         _legendEntries: filteredEntries
       }
     });
   }
 
-  if (!layersClipped.length && !includeAoi) throw new Error("No visible features within AOI to export.");
+  if (!layersClipped.length && !includeAoi) {
+    throw new Error("No visible features within AOI to export.");
+  }
 
-  // Legend image
   const legendMeta = layersClipped.map(L => ({
     name: L.name,
     geomType: guessLayerGeomType(L.features),
@@ -353,12 +371,11 @@ async function exportClippedKmz(aoi, data, outPath, opts = {}) {
     weight: L.style.weight,
     opacity: L.style.opacity,
     entries: (L.style._legendEntries && L.style._legendEntries.length)
-      ? L.style._legendEntries.map(e => ({ label: `${L.style.styleBy.field} = ${e.key}`, color: e.color }))
+      ? L.style._legendEntries.map(e => ({ label: `${L.style.styleBy?.field ?? ""}${L.style.styleBy ? " = " : ""}${e.key}`, color: e.color }))
       : (L.style.styleBy ? [] : [{ label: "Features", color: L.style.baseColor }]),
   }));
   const legendPng = drawLegendPng(legendMeta);
 
-  // Point icon (white dot; color is applied via IconStyle color)
   const dotCanvas = createCanvas(16, 16);
   const dctx = dotCanvas.getContext("2d");
   dctx.clearRect(0,0,16,16);
@@ -366,13 +383,12 @@ async function exportClippedKmz(aoi, data, outPath, opts = {}) {
   dctx.beginPath(); dctx.arc(8,8,6,0,Math.PI*2); dctx.fill();
   const dotPng = dotCanvas.toBuffer("image/png");
 
-  const kml = buildKmlDoc({ aoi: aoiFC, layers: layersClipped, includeAoi });
+  const kml = buildKmlDoc({ aoi: aoiFC, layers: layersClipped, includeAoi, kmlName });
 
-  // KMZ
   const zip = new JSZip();
   zip.file("doc.kml", kml);
   zip.file("legend.png", legendPng);
-  zip.file("media/dot.png", dotPng);
+  zip.folder("media").file("dot.png", dotPng);
 
   const buf = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE", compressionOptions: { level: 6 } });
   await fsp.mkdir(path.dirname(outPath), { recursive: true });

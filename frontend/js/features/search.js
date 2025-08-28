@@ -1,141 +1,111 @@
-// frontend/js/features/search.js
+// Coordinate search pop that opens when HUD center is clicked.
+// Uses radio buttons + glass theme (matches your CSS block).
 import { map } from "../map.js";
 
-const $popover   = document.getElementById("coordSearch");
-const $openBtn   = document.getElementById("hudCenterBtn");
-const $closeBtn  = document.getElementById("coordClose");
-const $input     = document.getElementById("coordInput");
-const $go        = document.getElementById("coordGo");
+let $pop, $input, $go;
+let isOpen = false;
 
-// ---------- Open/close & positioning ----------
-function openSearch(prefillFromCenter = true) {
-  if (prefillFromCenter) {
-    const c = map.getCenter();
-    $input.value = `${round6(c.lat)}, ${round6(c.lng)}`;
-  }
-  $popover.removeAttribute("hidden");
-  positionPopover();               // <-- keep it fully on-screen
-  queueMicrotask(() => $input?.focus());
-}
-function closeSearch() { $popover.setAttribute("hidden", "true"); }
+function ensureUi() {
+  if ($pop) return;
+  $pop = document.createElement("div");
+  $pop.className = "coord-pop";
+  $pop.setAttribute("hidden", "true");
+  $pop.innerHTML = `
+    <div class="coord-head">
+      <strong>GO TO COORDINATE</strong>
+      <button class="coord-close" title="Close">✕</button>
+    </div>
+    <div class="coord-body">
+      <input id="coordInput" type="text" placeholder="41.88 -87.63  |  41.88N 87.63W" />
+      <div class="coord-row">
+        <label class="radio"><input type="radio" name="coordMode" value="latlon" checked> lat, lon (default)</label>
+        <label class="radio"><input type="radio" name="coordMode" value="lonlat"> lon, lat</label>
+        <label class="radio"><input type="radio" name="coordMode" value="auto"> auto-detect</label>
+        <button id="coordGo">Go</button>
+      </div>
+      <div class="hint">Tips: "41.88 -87.63" · "41.88N 87.63W" · "41.88, -87.63"</div>
+    </div>`;
+  document.body.appendChild($pop);
 
-function round6(n) { return Number(n).toFixed(6); }
+  const $close = $pop.querySelector(".coord-close");
+  $input = $pop.querySelector("#coordInput");
+  $go    = $pop.querySelector("#coordGo");
 
-function positionPopover() {
-  // Anchor near the HUD center button; clamp to viewport
-  try {
-    const btn = $openBtn;
-    const pop = $popover;
-    if (!btn || !pop || pop.hasAttribute("hidden")) return;
-
-    const br = btn.getBoundingClientRect();
-    const pr = pop.getBoundingClientRect();
-    const pad = 8;
-
-    // Preferred left = button's left edge
-    let left = Math.round(br.left);
-    // If it would overflow right, shift left
-    const maxLeft = window.innerWidth - pr.width - pad;
-    left = Math.max(pad, Math.min(left, maxLeft));
-
-    // Preferred bottom is already set via CSS; but if too tall, nudge up
-    let bottom = parseInt(getComputedStyle(pop).bottom, 10) || 60;
-    const willOverflowTop = (window.innerHeight - bottom - pr.height) < pad;
-    if (willOverflowTop) bottom = Math.min(bottom + (pad + pr.height - (window.innerHeight - bottom)), 200);
-
-    pop.style.left = `${left}px`;
-    pop.style.bottom = `${bottom}px`;
-  } catch {}
+  $close.addEventListener("click", closeSearch);
+  $go.addEventListener("click", go);
+  $input.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
 }
 
-window.addEventListener("resize", positionPopover);
+function openSearch() {
+  ensureUi();
+  $pop.removeAttribute("hidden");
+  isOpen = true;
+  setTimeout(() => $input?.focus(), 0);
+}
+function closeSearch() {
+  if (!$pop) return;
+  $pop.setAttribute("hidden", "true");
+  isOpen = false;
+}
 
-// ---------- Mode ----------
-function readMode() {
+function selectedMode() {
   const el = document.querySelector('input[name="coordMode"]:checked');
-  return el?.value === "lonlat" ? "lonlat" : "latlon";
+  return el?.value || "latlon";
 }
 
-// ---------- Parser (comma or space; N/S/E/W prefixes/suffixes) ----------
-function parsePair(text) {
-  if (!text) return null;
-  // normalize odd separators to space
-  const cleaned = text.trim().replaceAll(/[，;|]/g, " ");
-  const parts = cleaned.split(/[\s,]+/).filter(Boolean);
-  if (parts.length < 2) return null;
+function go() {
+  const text = ($input?.value || "").trim();
+  const mode = selectedMode();
+  const pair = parsePair(text);
+  if (!pair) { alert("Enter coordinates like 41.88 -87.63 or 41.88N 87.63W"); return; }
 
-  const a = parseCoord(parts[0]);
-  const b = parseCoord(parts[1]);
-  if (a == null || b == null) return null;
+  const ll = interpret(pair, mode);
+  if (!ll) { alert("Coordinates out of bounds."); return; }
 
-  return [a, b];
+  const targetZ = Math.max(map.getZoom(), 18);
+  map.setView([ll.lat, ll.lng], targetZ);
+  closeSearch();
 }
 
-function parseCoord(token) {
-  if (!token) return null;
-  token = token.trim().toUpperCase();
+// ---- parsing helpers ----
+function parsePair(s) {
+  if (!s) return null;
+  // "41.88 -87.63", "41.88, -87.63"
+  const simple = s.match(/^\s*([+-]?\d+(\.\d+)?)\s*[, ]\s*([+-]?\d+(\.\d+)?)\s*$/);
+  if (simple) return { a: parseFloat(simple[1]), b: parseFloat(simple[3]) };
 
-  // detect directional suffix/prefix (N,S,E,W)
-  let sign = 1;
-  if (/[NSEW]$/.test(token)) {
-    const dir = token.at(-1);
-    token = token.slice(0, -1);
-    if (dir === "S" || dir === "W") sign = -1;
-  } else if (/^[NSEW]/.test(token)) {
-    const dir = token[0];
-    token = token.slice(1);
-    if (dir === "S" || dir === "W") sign = -1;
+  // "41.88N 87.63W" (any spacing/punct)
+  const dms = s.match(/([+-]?\d+(\.\d+)?)\s*([NSEW])[^0-9\-+]*([+-]?\d+(\.\d+)?)\s*([NSEW])/i);
+  if (dms) {
+    const v1 = parseFloat(dms[1]), c1 = dms[3].toUpperCase();
+    const v2 = parseFloat(dms[4]), c2 = dms[6].toUpperCase();
+    const sign = (v,c) => (c === "S" || c === "W") ? -Math.abs(v) : Math.abs(v);
+    let lat, lon;
+    if (c1 === "N" || c1 === "S") { lat = sign(v1,c1); lon = sign(v2,c2); }
+    else { lon = sign(v1,c1); lat = sign(v2,c2); }
+    return { a: lat, b: lon };
   }
-
-  const num = Number(token);
-  if (Number.isNaN(num)) return null;
-  return num * sign;
+  return null;
 }
 
 function interpret(pair, mode) {
   let lat, lon;
-  if (mode === "lonlat") { lon = pair[0]; lat = pair[1]; }
-  else { lat = pair[0]; lon = pair[1]; }
-  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
-  return [lat, lon];
-}
-
-// ---------- Action ----------
-async function go() {
-  const text = $input.value;
-  const pair = parsePair(text);
-  if (!pair) { alert("Enter coordinates like 41.88 -87.63 or 41.88N 87.63W"); return; }
-
-  const mode = readMode();
-  const ll = interpret(pair, mode);
-  if (!ll) { alert("Coordinates out of bounds."); return; }
-
-  // Zoom to 18 (cap by map's maxZoom just in case)
-  const desiredZoom = 17;
-  const maxZoom = typeof map.getMaxZoom === "function" ? (map.getMaxZoom() ?? 19) : 19;
-  const targetZ = Math.min(desiredZoom, maxZoom);
-
-  map.setView([ll[0], ll[1]], targetZ, { animate: true });
-  closeSearch();
-}
-
-
-// ---------- Wiring ----------
-$openBtn?.addEventListener("click", (e) => { e.preventDefault(); openSearch(true); });
-$closeBtn?.addEventListener("click", () => closeSearch());
-$go?.addEventListener("click", () => go());
-$input?.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
-
-// Keyboard shortcut: "/" opens search (unless you're already typing)
-window.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") {            // ESC closes
-    if (!$popover.hasAttribute("hidden")) { e.preventDefault(); closeSearch(); }
-    return;
+  if (mode === "latlon") { lat = pair.a; lon = pair.b; }
+  else if (mode === "lonlat") { lon = pair.a; lat = pair.b; }
+  else {
+    // auto
+    if (Math.abs(pair.a) > 90 || (Math.abs(pair.b) <= 90 && Math.abs(pair.a) > Math.abs(pair.b))) {
+      lon = pair.a; lat = pair.b;
+    } else { lat = pair.a; lon = pair.b; }
   }
-  if (e.key !== "/") return;
-  const t = e.target;
-  const isTyping = t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
-  if (isTyping) return;
-  e.preventDefault();                   // “/” = open
-  openSearch(true);
-});
+  if (!isFinite(lat) || !isFinite(lon)) return null;
+  if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
+  return { lat, lng: lon };
+}
+
+// Open on HUD center click
+window.addEventListener("ur-open-coord-search", openSearch);
+// Escape closes
+window.addEventListener("keydown", (e) => { if (isOpen && e.key === "Escape") closeSearch(); });
+
+export {};
