@@ -3,7 +3,11 @@
   "private": true,
   "scripts": {
     "dev": "concurrently -k -n PY,EL \"cd backend_py && uvicorn app.main:app --host 127.0.0.1 --port 5178\" \"cd frontend && electron .\"",
-    "electron": "cd frontend && electron ."
+    "electron": "cd frontend && electron .",
+    "backend": "docker compose build api && docker compose up -d",
+    "backend:down": "docker compose down",
+    "backend:logs": "docker compose logs -f api",
+    "dev": "npm run backend && electron ./frontend/electron/main.js"
   },
   "devDependencies": {
     "concurrently": "^9.0.0",

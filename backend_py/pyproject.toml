@@ -1,21 +1,17 @@
 [project]
-name = "ur-app-backend"
+name = "ur-geo-api"
 version = "0.1.0"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.115",
   "uvicorn[standard]>=0.30",
+  "orjson>=3.10",
   "pydantic>=2.7",
-  "sqlalchemy>=2.0",
-  "aiosqlite>=0.20",
-  "geopandas>=1.0",     # includes pyogrio wheels for shapefile/geojson
-  "shapely>=2.0",
-  "pyproj>=3.6",
-  "simplekml>=1.3",     # KMZ export
+  "pydantic-settings>=2.4",
 ]
 
 [tool.uvicorn]
 factory = false
-host = "127.0.0.1"
+host = "0.0.0.0"
 port = 5178
-reload = false
+app = "app.main:app"

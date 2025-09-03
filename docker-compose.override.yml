@@ -1,0 +1,8 @@
+# docker-compose.override.yml
+services:
+  api:
+    command: uvicorn app.main:app --host 0.0.0.0 --port 5178 --reload --reload-dir /app/app
+    volumes:
+      - ./backend_py/app:/app/app:rw   # live-mount your source
+    environment:
+      - UR_APP_ENV=dev

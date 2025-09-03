@@ -1,0 +1,8 @@
+services:
+  api:
+    build: ./backend_py
+    ports:
+      - "5178:5178"
+    volumes:
+      - ./backend_py/app:/app/app:rw
+    restart: unless-stopped

@@ -1,49 +1,86 @@
+// frontend/electron/main.js
 const { app, BrowserWindow, ipcMain, dialog } = require("electron");
 const path = require("path");
-const { spawn } = require("child_process");
+const fs = require("fs/promises");
+const fetch = (...a) => import("node-fetch").then(({ default: f }) => f(...a));
 
-let pyProc = null;
-let mainWin = null;
+const API_BASE = process.env.UR_API_BASE || "http://localhost:5178";
 
-function startPython() {
-  const venvPython = process.env.UR_PYTHON || "python"; // or bundle your venv/python.exe
-  const backendDir = path.join(__dirname, "..", "..", "backend_py");
-  pyProc = spawn(venvPython, ["-m", "app.main"], {
-    cwd: backendDir,
-    env: { ...process.env, UR_PORT: "5178" },
-    stdio: "inherit"
+/** Ensure single app instance (prevents double-main) */
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    const win = BrowserWindow.getAllWindows()[0];
+    if (win) { if (win.isMinimized()) win.restore(); win.focus(); }
   });
-  pyProc.on("exit", (code) => console.log("Python exited:", code));
 }
 
-function createWindow() {
-  mainWin = new BrowserWindow({
-    width: 1280, height: 800, backgroundColor: "#111827",
-    webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
-      contextIsolation: true, nodeIntegration: false
+/** Register IPC handlers ONCE, even if dev reload re-evaluates this file */
+function registerIpcOnce() {
+  if (global.__UR_IPC_REGISTERED__) return;
+
+  // Always remove existing handlers to avoid "second handler" error
+  ipcMain.removeHandler("api:base");
+  ipcMain.handle("api:base", () => API_BASE);
+
+  ipcMain.removeHandler("export:kmz");
+  ipcMain.handle("export:kmz", async (_e, payload) => {
+    const { name = "export" } = payload || {};
+    const win = BrowserWindow.getFocusedWindow();
+
+    const { canceled, filePath } = await dialog.showSaveDialog(win, {
+      title: "Save KMZ",
+      defaultPath: `${name}.kmz`,
+      filters: [{ name: "KMZ", extensions: ["kmz"] }],
+    });
+    if (canceled || !filePath) return { ok: false, error: "User canceled" };
+
+    try {
+      const res = await fetch(`${API_BASE}/export/kmz`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      if (!res.ok) return { ok: false, error: `Backend ${res.status} ${res.statusText}` };
+
+      const buf = Buffer.from(await res.arrayBuffer());
+      await fs.writeFile(filePath, buf);
+      return { ok: true, path: filePath };
+    } catch (err) {
+      return { ok: false, error: String(err?.message || err) };
     }
   });
-  mainWin.loadFile(path.join(__dirname, "..", "index.html"));
+
+  global.__UR_IPC_REGISTERED__ = true;
+}
+
+/** Create the main window */
+function createWindow() {
+  const win = new BrowserWindow({
+    width: 1280,
+    height: 840,
+    webPreferences: {
+      preload: path.join(__dirname, "preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+
+  // Load your UI (adjust path if needed)
+  win.loadFile(path.join(__dirname, "..", "index.html"));
 }
 
 app.whenReady().then(() => {
-  startPython();
+  registerIpcOnce();
   createWindow();
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
-  });
 });
 
-app.on("before-quit", () => {
-  if (pyProc && !pyProc.killed) { try { pyProc.kill(); } catch {} }
+app.on("activate", () => {
+  if (BrowserWindow.getAllWindows().length === 0) createWindow();
 });
 
-ipcMain.handle("select-files", async () => {
-  const res = await dialog.showOpenDialog(mainWin, {
-    properties: ["openFile", "multiSelections"],
-    filters: [{ name: "GIS", extensions: ["shp", "json", "geojson", "kml", "kmz"] }]
-  });
-  if (res.canceled) return { ok: false, files: [] };
-  return { ok: true, files: res.filePaths };
+app.on("window-all-closed", () => {
+  if (process.platform !== "darwin") app.quit();
 });

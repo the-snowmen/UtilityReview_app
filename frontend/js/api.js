@@ -1,10 +1,13 @@
-// Optional: a tiny wrapper your UI can import instead of touching window.backend directly
-export const backend = window.backend;
-
-// handy helpers
-export async function importVectorViaDialog() {
-  const pick = await backend.selectFiles();
-  if (!pick.ok || !pick.files?.length) return null;
-  const first = pick.files[0];
-  return backend.ingestFile(first, null, null); // { ok, layer }
+export async function getApiBase() {
+  if (window.backend?.apiBase) return await window.backend.apiBase();
+  return "http://localhost:5178"; // dev default
 }
+
+export async function apiGet(path) {
+  const base = await getApiBase();
+  const res = await fetch(`${base}${path}`, { headers: { "accept":"application/json" } });
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  return res.json();
+}
+
+export const health = () => apiGet("/health");

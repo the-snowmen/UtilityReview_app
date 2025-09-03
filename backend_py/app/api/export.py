@@ -1,35 +1,27 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from pathlib import Path
-from ..core.config import EXPORT_DIR
-from ..services.kmz import write_kmz
+import tempfile, zipfile, os
 
-router = APIRouter(prefix="/export", tags=["export"])
+router = APIRouter(tags=["export"])
 
-class ExportBody(BaseModel):
-    aoi: dict | None = None               # Feature (Polygon/MultiPolygon)
-    data: list[dict]                      # [{ name, geojson(FC), style }]
-    suggestedName: str = "aoi_export.kmz"
-    opts: dict | None = None
+class ExportRequest(BaseModel):
+    name: str = "export"
 
 @router.post("/kmz")
-def export_kmz(body: ExportBody):
-    try:
-        out = EXPORT_DIR / body.suggestedName
-        # flatten features FCs -> simple list of geometries with style
-        feats = []
-        for l in body.data:
-            name = l.get("name","Layer")
-            style = l.get("style", {})
-            fc = l.get("geojson", {})
-            for f in fc.get("features", []):
-                feats.append({
-                    "name": name,
-                    "geometry": f["geometry"],
-                    "style": style
-                })
-        aoi_geom = body.aoi.get("geometry") if body.aoi else None
-        write_kmz(feats, aoi_geom, legend=None, out_path=out)
-        return {"ok": True, "file": str(out)}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+def export_kmz(req: ExportRequest):
+    kml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+<Document>
+  <name>{req.name}</name>
+  <Placemark><name>Hello</name><Point><coordinates>-87.9065,43.0389,0</coordinates></Point></Placemark>
+</Document>
+</kml>"""
+    tmpdir = tempfile.mkdtemp(prefix="ur_export_")
+    kml_path = os.path.join(tmpdir, "doc.kml")
+    with open(kml_path, "w", encoding="utf-8") as f: f.write(kml)
+    kmz_path = os.path.join(tmpdir, f"{req.name or 'export'}.kmz")
+    with zipfile.ZipFile(kmz_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.write(kml_path, arcname="doc.kml")
+    return FileResponse(kmz_path, media_type="application/vnd.google-earth.kmz",
+                        filename=os.path.basename(kmz_path))

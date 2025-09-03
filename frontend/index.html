@@ -4,22 +4,29 @@
     <meta charset="UTF-8" />
     <title>UR App – GIS Viewer</title>
 
+    <!-- CSP: allow localhost API + unpkg tiles/styles -->
     <meta http-equiv="Content-Security-Policy"
       content="default-src 'self' data: blob: https:;
                img-src 'self' data: blob: https:;
                style-src 'self' 'unsafe-inline' https://unpkg.com;
                script-src 'self' https://unpkg.com;
-               connect-src 'self' https:;
+               connect-src 'self' http: https: ws:;
                font-src 'self' data: https:;" />
 
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
-    <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" crossorigin="">
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet"
+          href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+          crossorigin="" />
+    <link rel="stylesheet"
+          href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css"
+          crossorigin="" />
+
+    <!-- Local CSS -->
+    <link rel="stylesheet" href="./style.css" />
 
     <style>
       html, body, #map { height: 100%; margin: 0; padding: 0; }
     </style>
-
-    <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
     <!-- Fullscreen Map -->
@@ -64,7 +71,6 @@
     <!-- AOI panel -->
     <div id="aoiPanel" class="aoi-panel" hidden>
       <label class="inline"><input type="checkbox" id="chkIncludeAoi" checked> Include AOI</label>
-      <!-- Import AOI here only -->
       <button id="btn-aoi-from-kmz" class="ur-btn">AOI from KML/KMZ…</button>
       <button id="btnExportAoi" class="pill">Export</button>
       <button id="btnClearAoi" class="pill ghost">Clear AOI</button>
@@ -88,14 +94,12 @@
           <div id="styleModalTitle">Style</div>
           <button id="styleModalClose" class="pill" title="Close">✕</button>
         </div>
-
         <div class="modal-body">
           <div class="row">
             <label>Base Color <input type="color" id="styleBaseColor" value="#ff3333"></label>
             <label>Weight <input type="number" id="styleBaseWeight" min="1" max="20" value="2"></label>
             <label>Opacity <input type="number" id="styleBaseOpacity" step="0.1" min="0" max="1" value="1"></label>
           </div>
-
           <div class="row">
             <label for="styleFieldSelect">Style by field</label>
             <select id="styleFieldSelect"></select>
@@ -103,16 +107,16 @@
             <button id="styleClearBtn" class="pill ghost" disabled>Clear</button>
             <button id="styleApplyBtn" class="pill" disabled>Apply</button>
           </div>
-
           <div id="styleMapWrap" class="mapping"></div>
         </div>
       </div>
     </div>
 
-    <!-- Scripts -->
+    <!-- Vendor JS -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
     <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js" crossorigin=""></script>
+
+    <!-- App entry -->
     <script type="module" src="./js/main.js"></script>
-    <script type="module" src="./js/features/search.js"></script>
   </body>
 </html>

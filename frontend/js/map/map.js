@@ -1,66 +1,86 @@
 // frontend/js/map.js
-export const sharedCanvas = L.canvas({ padding: 0.5, tolerance: 3 });
-const $map = document.getElementById("map");
+// Initialize Leaflet *after* DOM is ready. Export functions for other modules.
 
-// High-contrast AOI style (works on dark/light basemaps)
+export let map = null;
+export let currentBase = null;
+
 const AOI_STYLE = {
-  color: "#ff5a5f",        // stroke (light red)
+  color: "#ff5a5f",
   weight: 2,
   dashArray: "6,4",
-  fillColor: "#ff9aa2",    // soft red fill
-  fillOpacity: 0.20
+  fillColor: "#ff9aa2",
+  fillOpacity: 0.20,
 };
 
-// ----------------------------------------------------------------------------
-// Map + basemaps
-// ----------------------------------------------------------------------------
-export const map = L.map($map, { preferCanvas: true, zoomControl: false, renderer: sharedCanvas })
-  .setView([39, -96], 4);
+let aoiLayer = null;
+let aoiDrawTool = null;
 
-export const baseLayers = {
-  osm: L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    attribution: "&copy; OpenStreetMap",
-    maxZoom: 22
-  }),
+export function initMap() {
+  // Ensure DOM element exists
+  const el = document.getElementById("map");
+  if (!el) {
+    console.error("Map container #map not found in DOM.");
+    return null;
+  }
 
-  esri_streets: L.tileLayer(
-    "https://services.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
-    { attribution: "Tiles © Esri", maxZoom: 19 }
-  ),
+  // Ensure Leaflet is loaded
+  if (!window.L) {
+    console.error("Leaflet (L) is not loaded. Include leaflet.js before this script.");
+    return null;
+  }
 
-  esri_sat: L.tileLayer(
-    "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-    { attribution: "Imagery © Esri", maxZoom: 19 }
-  ),
+  // Create a shared canvas renderer (optional perf)
+  const sharedCanvas = L.canvas({ padding: 0.5, tolerance: 3 });
 
-  carto_light: L.tileLayer(
-    "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
-    { attribution: "&copy; CARTO & OpenStreetMap", maxZoom: 19 }
-  ),
+  // Create map
+  map = L.map(el, { preferCanvas: true, zoomControl: false, renderer: sharedCanvas })
+          .setView([39, -96], 4);
 
-  carto_dark: L.tileLayer(
-    "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-    { attribution: "&copy; CARTO & OpenStreetMap", maxZoom: 19 }
-  ),
-};
+  // Basemaps
+  const baseLayers = {
+    osm: L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "© OpenStreetMap",
+      maxZoom: 22,
+    }),
+    esri_streets: L.tileLayer(
+      "https://services.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
+      { attribution: "Tiles © Esri", maxZoom: 19 }
+    ),
+    esri_sat: L.tileLayer(
+      "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+      { attribution: "Imagery © Esri", maxZoom: 19 }
+    ),
+    carto_light: L.tileLayer(
+      "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
+      { attribution: "© CARTO & OpenStreetMap", maxZoom: 19 }
+    ),
+    carto_dark: L.tileLayer(
+      "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+      { attribution: "© CARTO & OpenStreetMap", maxZoom: 19 }
+    ),
+  };
 
-export let currentBase = baseLayers.carto_light.addTo(map);
+  currentBase = baseLayers.carto_light.addTo(map);
 
-export function switchBasemap(key) {
-  if (!baseLayers[key]) return;
-  if (currentBase) map.removeLayer(currentBase);
-  currentBase = baseLayers[key].addTo(map);
+  // Expose a simple switcher
+  map.__urBaseLayers = baseLayers;
+  return map;
 }
 
-// ----------------------------------------------------------------------------
-/** AOI management: draw, clear, get/set from GeoJSON (single source of truth) */
-// ----------------------------------------------------------------------------
-let aoiLayer = null;     // Leaflet layer for AOI
-let aoiDrawTool = null;  // current Leaflet.draw tool instance
+export function switchBasemap(key) {
+  if (!map || !map.__urBaseLayers) return;
+  const next = map.__urBaseLayers[key];
+  if (!next) return;
+  if (currentBase) map.removeLayer(currentBase);
+  currentBase = next.addTo(map);
+}
+
+/* ---------------- AOI management ---------------- */
 
 export function startAoiDraw() {
+  if (!map) return;
   if (!L || !L.Draw || !L.Draw.Polygon) {
-    alert("Leaflet.draw not loaded");
+    alert("Leaflet.draw not loaded (include leaflet.draw.js and .css).");
     return;
   }
   if (aoiDrawTool?.disable) aoiDrawTool.disable();
@@ -79,51 +99,51 @@ export function stopAoiDraw() {
 }
 
 export function clearAoi() {
-  try { if (aoiLayer) map.removeLayer(aoiLayer); } catch {}
+  if (map && aoiLayer) {
+    try { map.removeLayer(aoiLayer); } catch {}
+  }
   aoiLayer = null;
 }
 
-// Returns AOI as a Feature (Polygon or MultiPolygon) or null
 export function getAoiGeoJSON() {
   return aoiLayer ? aoiLayer.toGeoJSON() : null;
 }
 
-// Programmatically set AOI from a GeoJSON Feature (Polygon/MultiPolygon)
 export function setAoiFromGeoJSON(feature) {
-  if (!feature || !feature.type || feature.type !== "Feature") {
-    throw new Error("setAoiFromGeoJSON expects a GeoJSON Feature");
-  }
+  if (!map) return;
+  if (!feature || feature.type !== "Feature") throw new Error("GeoJSON Feature required");
   const g = feature.geometry;
   if (!g || (g.type !== "Polygon" && g.type !== "MultiPolygon")) {
-    throw new Error("AOI must be a Polygon or MultiPolygon feature");
+    throw new Error("AOI must be Polygon or MultiPolygon");
   }
-
-  // Replace the existing AOI layer
   clearAoi();
   aoiLayer = L.geoJSON(feature, { style: AOI_STYLE }).addTo(map);
   try {
     const b = aoiLayer.getBounds();
-    if (b && b.isValid()) map.fitBounds(b, { padding: [24, 24] });
+    if (b?.isValid()) map.fitBounds(b, { padding: [24, 24] });
   } catch {}
 }
 
-// When user finishes drawing a polygon, make it the AOI and fit
-map.on(L.Draw.Event.CREATED, (e) => {
-  if (e.layerType !== "polygon") return;
+// Attach once the map exists
+if (typeof window !== "undefined") {
+  document.addEventListener("DOMContentLoaded", () => {
+    // If another module calls initMap() first, skip here.
+    if (!map) initMap();
 
-  // Replace existing AOI layer
-  clearAoi();
-  aoiLayer = e.layer;
-  aoiLayer.setStyle?.(AOI_STYLE);
-  aoiLayer.addTo(map);
-  aoiLayer.bringToFront();
-
-  // Fit to AOI
-  try {
-    const b = aoiLayer.getBounds();
-    if (b && b.isValid()) map.fitBounds(b, { padding: [24, 24] });
-  } catch {}
-
-  // Stop drawing mode
-  stopAoiDraw();
-});
+    if (map && L?.Draw) {
+      map.on(L.Draw.Event.CREATED, (e) => {
+        if (e.layerType !== "polygon") return;
+        clearAoi();
+        aoiLayer = e.layer;
+        aoiLayer.setStyle?.(AOI_STYLE);
+        aoiLayer.addTo(map);
+        aoiLayer.bringToFront();
+        try {
+          const b = aoiLayer.getBounds();
+          if (b?.isValid()) map.fitBounds(b, { padding: [24, 24] });
+        } catch {}
+        stopAoiDraw();
+      });
+    }
+  });
+}
