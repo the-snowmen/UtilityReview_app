@@ -2,7 +2,8 @@
 const { app, BrowserWindow, ipcMain, dialog } = require("electron");
 const path = require("path");
 const fs = require("fs/promises");
-const fetch = (...a) => import("node-fetch").then(({ default: f }) => f(...a));
+const { buildKmzBuffer } = require("./kmz"); // <-- add this near top
+const fetchHttp = (...args) => globalThis.fetch(...args);
 
 const API_BASE = process.env.UR_API_BASE || "http://localhost:5178";
 
@@ -27,31 +28,67 @@ function registerIpcOnce() {
 
   ipcMain.removeHandler("export:kmz");
   ipcMain.handle("export:kmz", async (_e, payload) => {
-    const { name = "export" } = payload || {};
+    console.log("[IPC] export:kmz called with", payload);
+    const { name = "export", kml = null, legendPngBase64 = null } = payload || {};
     const win = BrowserWindow.getFocusedWindow();
 
     const { canceled, filePath } = await dialog.showSaveDialog(win, {
       title: "Save KMZ",
       defaultPath: `${name}.kmz`,
-      filters: [{ name: "KMZ", extensions: ["kmz"] }],
+      filters: [{ name: "Google Earth (KMZ)", extensions: ["kmz"] }],
     });
     if (canceled || !filePath) return { ok: false, error: "User canceled" };
 
+    // Helper: default minimal KML if none was sent
+    const fallbackKml = `<?xml version="1.0" encoding="UTF-8"?>
+  <kml xmlns="http://www.opengis.net/kml/2.2">
+    <Document>
+      <name>${name}</name>
+      <Placemark><name>UR App test</name>
+        <Point><coordinates>-87.9065,43.0389,0</coordinates></Point>
+      </Placemark>
+    </Document>
+  </kml>`;
+
+    // Try backend first (if running)
     try {
-      const res = await fetch(`${API_BASE}/export/kmz`, {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8000);
+
+      const res = await fetchHttp(`${API_BASE}/export/kmz`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name }),
-      });
-      if (!res.ok) return { ok: false, error: `Backend ${res.status} ${res.statusText}` };
+        body: JSON.stringify({ name, kml, legendPngBase64 }),
+        signal: controller.signal,
+      }).finally(() => clearTimeout(timeout));
 
-      const buf = Buffer.from(await res.arrayBuffer());
-      await fs.writeFile(filePath, buf);
-      return { ok: true, path: filePath };
+      if (res.ok) {
+        const buf = Buffer.from(await res.arrayBuffer());
+        await fs.writeFile(filePath, buf);
+        return { ok: true, path: filePath, via: "backend" };
+      }
+
+      console.warn(`[export:kmz] backend HTTP ${res.status} ${res.statusText}; falling back local KMZ`);
     } catch (err) {
+      console.warn(`[export:kmz] backend error; falling back local KMZ:`, err?.message || err);
+    }
+
+    // Local KMZ fallback using provided KML (or minimal fallback)
+    try {
+      const assets = [];
+      if (legendPngBase64) {
+        const pngBuf = Buffer.from(legendPngBase64, "base64");
+        assets.push({ name: "legend.png", data: pngBuf });
+      }
+      const kmzBuf = await buildKmzBuffer({ kml: kml || fallbackKml, assets });
+      await fs.writeFile(filePath, kmzBuf);
+      return { ok: true, path: filePath, via: "local" };
+    } catch (err) {
+      console.error("export:kmz local build failed:", err);
       return { ok: false, error: String(err?.message || err) };
     }
   });
+
 
   global.__UR_IPC_REGISTERED__ = true;
 }

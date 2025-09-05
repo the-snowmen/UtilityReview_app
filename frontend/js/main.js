@@ -1,27 +1,17 @@
 // frontend/js/main.js
-// Robust renderer entry: loads map module with fallback and wires UI.
+// Stable renderer entry: use static imports (no dynamic import() on file://)
 
-import "./test_export.js";          // optional KMZ test button
+import "./test_export.js";                 // optional KMZ test button
 import { initSearch } from "./features/search.js";
+import {
+  initMap, switchBasemap,
+  startAoiDraw, stopAoiDraw, clearAoi
+} from "./map/map.js"; // <-- static import to avoid file:// dynamic-import flakiness
 
-function $(sel, el = document) { return el.querySelector(sel); }
-function show(el) { if (el) el.hidden = false; }
-function hide(el) { if (el) el.hidden = true; }
-function toggle(el) { if (el) el.hidden = !el.hidden; }
-
-async function loadMapModule() {
-  // Try ./map.js (same folder), then ./map/map.js (subfolder) as a fallback.
-  try {
-    const mod = await import("./map.js");
-    console.log("Loaded map from ./map.js");
-    return mod;
-  } catch (e1) {
-    console.warn("Failed to load ./map.js, trying ./map/map.js", e1);
-    const mod = await import("./map/map.js");
-    console.log("Loaded map from ./map/map.js");
-    return mod;
-  }
-}
+const $ = (sel, el = document) => el.querySelector(sel);
+const show   = el => { if (el) el.hidden = false; };
+const hide   = el => { if (el) el.hidden = true;  };
+const toggle = el => { if (el) el.hidden = !el.hidden; };
 
 function formatCenter(map) {
   const c = map.getCenter();
@@ -29,20 +19,21 @@ function formatCenter(map) {
 }
 
 function wireHud(map) {
-  const $hudCenter = $("#hudCenter");
-  const $hudZoom   = $("#hudZoom");
-  const $hudCursor = $("#hudCursor");
+  const $hudCenter    = $("#hudCenter");
+  const $hudZoom      = $("#hudZoom");
+  const $hudCursor    = $("#hudCursor");
   const $hudCenterBtn = $("#hudCenterBtn");
 
   const updateCZ = () => {
     if ($hudCenter) $hudCenter.textContent = formatCenter(map);
-    if ($hudZoom)   $hudZoom.textContent = `z${map.getZoom()}`;
+    if ($hudZoom)   $hudZoom.textContent   = `z${map.getZoom()}`;
   };
   map.on("moveend zoomend", updateCZ);
   updateCZ();
 
   map.on("mousemove", (e) => {
-    if ($hudCursor) $hudCursor.textContent = `${e.latlng.lat.toFixed(6)}, ${e.latlng.lng.toFixed(6)}`;
+    if ($hudCursor) $hudCursor.textContent =
+      `${e.latlng.lat.toFixed(6)}, ${e.latlng.lng.toFixed(6)}`;
   });
 
   $hudCenterBtn?.addEventListener("click", () => {
@@ -50,13 +41,13 @@ function wireHud(map) {
   });
 }
 
-function wireBasemap(switchBasemap) {
+function wireBasemap(switchBasemapFn) {
   const $sel = $("#basemapSelect");
   if (!$sel) return;
   $sel.value = "carto_light";
   $sel.addEventListener("change", (e) => {
     const key = e.target.value;
-    switchBasemap(key);
+    switchBasemapFn(key);
   });
 }
 
@@ -72,9 +63,7 @@ function wireAoi({ startAoiDraw, stopAoiDraw, clearAoi }) {
     else stopAoiDraw();
   });
 
-  $btnClearAoi?.addEventListener("click", () => {
-    clearAoi();
-  });
+  $btnClearAoi?.addEventListener("click", () => clearAoi());
 
   $btnExportAoi?.addEventListener("click", async () => {
     if (!window.backend?.exportKmz) { alert("Backend not available"); return; }
@@ -86,7 +75,6 @@ function wireAoi({ startAoiDraw, stopAoiDraw, clearAoi }) {
 
 function wireLayersPanel() {
   $("#layersHeader")?.addEventListener("click", () => {
-    // Fit/refresh placeholder — you can expand later
     console.log("Layers header clicked");
   });
   $("#btnImport")?.addEventListener("click", () => {
@@ -94,22 +82,13 @@ function wireLayersPanel() {
   });
 }
 
-async function boot() {
+function boot() {
   try {
-    const mapMod = await loadMapModule();
-    const { initMap, switchBasemap, startAoiDraw, stopAoiDraw, clearAoi } = mapMod;
-
-    if (typeof initMap !== "function") {
-      console.error("initMap not exported from map module.");
-      return;
-    }
-
     const map = initMap();
     if (!map) {
       console.error("Map failed to initialize. Check Leaflet includes and #map element.");
       return;
     }
-
     wireHud(map);
     wireBasemap(switchBasemap);
     wireAoi({ startAoiDraw, stopAoiDraw, clearAoi });
@@ -119,8 +98,8 @@ async function boot() {
 
     console.log("App ready. Leaflet:", L?.version, "Backend bridge:", typeof window.backend);
   } catch (err) {
-    console.error("Failed to load map module:", err);
-    alert("Could not load map module. Check console for details.");
+    console.error("Failed to start app:", err);
+    alert("Could not start app. Check console for details.");
   }
 }
 
