@@ -14,6 +14,7 @@ import { toggleCommentMode, getCommentsGeoJSON } from "./features/comments.js";
 const $basemap       = document.getElementById("basemapSelect");
 const $layerList     = document.getElementById("layerList");
 const $btnImport     = document.getElementById("btnImport");
+const $btnLoadDB     = document.getElementById("btnLoadDB");
 
 // HUD
 const $hudCursor     = document.getElementById("hudCursor");
@@ -35,6 +36,19 @@ const $info          = document.getElementById("infoPanel");
 const $infoClose     = document.getElementById("infoClose");
 const $infoTitle     = document.getElementById("infoTitle");
 const $infoBody      = document.getElementById("infoBody");
+
+// Style Modal
+const $styleModal      = document.getElementById("styleModal");
+const $styleModalClose = document.getElementById("styleModalClose");
+const $styleModalTitle = document.getElementById("styleModalTitle");
+const $styleBaseColor  = document.getElementById("styleBaseColor");
+const $styleBaseWeight = document.getElementById("styleBaseWeight");
+const $styleBaseOpacity = document.getElementById("styleBaseOpacity");
+const $styleFieldSelect = document.getElementById("styleFieldSelect");
+const $styleScanBtn    = document.getElementById("styleScanBtn");
+const $styleClearBtn   = document.getElementById("styleClearBtn");
+const $styleApplyBtn   = document.getElementById("styleApplyBtn");
+const $styleMapWrap    = document.getElementById("styleMapWrap");
 
 let aoiOn = false;
 
@@ -63,6 +77,9 @@ $hudCenterBtn?.addEventListener("click", () => {
 // ---------- import ----------
 $btnImport?.addEventListener("click", onImportFiles);
 
+// ---------- database ----------
+$btnLoadDB?.addEventListener("click", onLoadFromDatabase);
+
 async function onImportFiles() {
   if (!window.backend?.selectFiles || !window.backend?.ingestFile) {
     alert("IPC not available. Check preload/electron wiring.");
@@ -83,6 +100,48 @@ async function onImportFiles() {
       alert(`Failed to ingest:\n${p}\n${res?.error || ""}`);
     }
   }
+  setOrderFromDom($layerList);
+  syncMapOrder();
+  refreshLegend();
+}
+
+async function onLoadFromDatabase() {
+  if (!window.backend?.dbLoadFiberCables) {
+    alert("Database IPC not available. Check preload/electron wiring.");
+    return;
+  }
+
+  try {
+    // Test connection first
+    const connTest = await window.backend.dbTestConnection();
+    if (!connTest?.ok || !connTest?.connected) {
+      alert("Database connection failed. Please check your .env configuration and ensure the database is running.");
+      return;
+    }
+
+    // Load fiber cable data (no spatial filtering to see all features)
+    console.log("Loading fiber cable data from database...");
+    const res = await window.backend.dbLoadFiberCables(null, 100000);
+
+    if (res?.ok && res.geojson) {
+      console.log(`Loaded ${res.geojson.features?.length || 0} fiber cable features`);
+      const id = addGeoJSONLayer(res.name || "Fiber Cables", res.geojson, true);
+      const li = buildLayerItem(id, getById(id));
+      $layerList.prepend(li);
+
+      // Zoom to the loaded data if it has features
+      if (res.geojson.features?.length > 0) {
+        zoomToLayer(id);
+      }
+    } else {
+      console.error("Database load failed:", res?.error || res);
+      alert(`Failed to load from database:\n${res?.error || "Unknown error"}`);
+    }
+  } catch (e) {
+    console.error("Database load error:", e);
+    alert(`Database error: ${e.message}`);
+  }
+
   setOrderFromDom($layerList);
   syncMapOrder();
   refreshLegend();
@@ -282,6 +341,182 @@ window.addEventListener("ur-identify", (e) => {
 });
 $infoClose?.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); hideInfo(); }, { capture: true });
 
+// ---------- style modal ----------
+let currentStyleLayerId = null;
+
+function openStyleModal(layerId) {
+  currentStyleLayerId = layerId;
+  const layer = getById(layerId);
+  if (!layer) return;
+
+  $styleModalTitle.textContent = `Style: ${layer.name}`;
+
+  // Populate field dropdown
+  populateFieldDropdown(layer);
+
+  // Reset categorical styling UI
+  resetCategoricalStyling();
+
+  $styleModal.hidden = false;
+}
+
+function populateFieldDropdown(layer) {
+  // Clear existing options
+  $styleFieldSelect.innerHTML = '<option value="">Select a field...</option>';
+
+  if (!layer.geojson?.features?.length) return;
+
+  // Get all property keys from the first feature
+  const firstFeature = layer.geojson.features[0];
+  if (!firstFeature?.properties) return;
+
+  const fields = Object.keys(firstFeature.properties);
+
+  fields.forEach(field => {
+    const option = document.createElement('option');
+    option.value = field;
+    option.textContent = field;
+    $styleFieldSelect.appendChild(option);
+  });
+
+  // Enable scan button when a field is selected
+  $styleFieldSelect.addEventListener('change', () => {
+    const hasField = $styleFieldSelect.value !== '';
+    $styleScanBtn.disabled = !hasField;
+    if (!hasField) {
+      resetCategoricalStyling();
+    }
+  });
+}
+
+function resetCategoricalStyling() {
+  $styleMapWrap.innerHTML = '';
+  $styleClearBtn.disabled = true;
+  $styleApplyBtn.disabled = true;
+}
+
+function scanFieldValues() {
+  if (!currentStyleLayerId || !$styleFieldSelect.value) return;
+
+  const layer = getById(currentStyleLayerId);
+  if (!layer?.geojson?.features) return;
+
+  const fieldName = $styleFieldSelect.value;
+  const uniqueValues = new Set();
+
+  // Collect unique values
+  layer.geojson.features.forEach(feature => {
+    const value = feature.properties?.[fieldName];
+    if (value !== null && value !== undefined && value !== '') {
+      uniqueValues.add(String(value));
+    }
+  });
+
+  // Limit to reasonable number of categories
+  const values = Array.from(uniqueValues).slice(0, 20);
+
+  if (values.length === 0) {
+    $styleMapWrap.innerHTML = '<p>No values found for this field.</p>';
+    return;
+  }
+
+  // Generate color mappings
+  const colorMappings = generateColorMappings(values);
+
+  // Build UI for value mappings
+  buildValueMappingUI(values, colorMappings);
+
+  $styleClearBtn.disabled = false;
+  $styleApplyBtn.disabled = false;
+}
+
+function generateColorMappings(values) {
+  const colors = [
+    '#ff3333', '#33ff33', '#3333ff', '#ffff33', '#ff33ff', '#33ffff',
+    '#ff6633', '#33ff66', '#6633ff', '#ff3366', '#66ff33', '#3366ff',
+    '#ff9933', '#33ff99', '#9933ff', '#ff3399', '#99ff33', '#3399ff'
+  ];
+
+  const mappings = {};
+  values.forEach((value, index) => {
+    mappings[value] = colors[index % colors.length];
+  });
+
+  return mappings;
+}
+
+function buildValueMappingUI(values, colorMappings) {
+  const html = values.map(value => `
+    <div class="value-mapping" style="display: flex; align-items: center; gap: 8px; margin: 4px 0;">
+      <input type="color" value="${colorMappings[value]}" data-value="${escapeHtml(value)}"
+             style="width: 30px; height: 20px; border: none; border-radius: 4px;">
+      <span style="flex: 1; font-size: 12px;">${escapeHtml(value)}</span>
+    </div>
+  `).join('');
+
+  $styleMapWrap.innerHTML = html;
+}
+
+function applyCategoricalStyle() {
+  if (!currentStyleLayerId || !$styleFieldSelect.value) return;
+
+  const layer = getById(currentStyleLayerId);
+  if (!layer?.leafletLayer) return;
+
+  const fieldName = $styleFieldSelect.value;
+  const colorMappings = {};
+
+  // Collect color mappings from UI
+  $styleMapWrap.querySelectorAll('input[type="color"]').forEach(input => {
+    const value = input.dataset.value;
+    const color = input.value;
+    colorMappings[value] = color;
+  });
+
+  // Apply categorical styling using layers.js function
+  setCategoricalStyle(currentStyleLayerId, fieldName, colorMappings);
+}
+
+function clearCurrentCategoricalStyle() {
+  if (!currentStyleLayerId) return;
+  clearCategoricalStyle(currentStyleLayerId);
+  resetCategoricalStyling();
+}
+
+function closeStyleModal() {
+  $styleModal.hidden = true;
+  currentStyleLayerId = null;
+  resetCategoricalStyling();
+}
+
+function applyBasicStyle() {
+  if (!currentStyleLayerId) return;
+
+  const color = $styleBaseColor.value;
+  const weight = parseInt($styleBaseWeight.value) || 2;
+  const opacity = parseFloat($styleBaseOpacity.value) || 1;
+
+  const layer = getById(currentStyleLayerId);
+  if (layer?.leafletLayer) {
+    layer.leafletLayer.setStyle({
+      color: color,
+      weight: weight,
+      opacity: opacity,
+      fillOpacity: opacity * 0.3
+    });
+  }
+}
+
+$styleModalClose?.addEventListener("click", closeStyleModal);
+$styleBaseColor?.addEventListener("change", applyBasicStyle);
+$styleBaseWeight?.addEventListener("change", applyBasicStyle);
+$styleBaseOpacity?.addEventListener("change", applyBasicStyle);
+
+// Categorical styling event listeners
+$styleScanBtn?.addEventListener("click", scanFieldValues);
+$styleApplyBtn?.addEventListener("click", applyCategoricalStyle);
+$styleClearBtn?.addEventListener("click", clearCurrentCategoricalStyle);
+
 // Global Esc: close info; exit AOI draw if active
 window.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
@@ -290,6 +525,8 @@ window.addEventListener("keydown", (e) => {
     $btnAoi?.classList.remove("active");
     $aoiPanel?.setAttribute("hidden", "true");
     stopAoiDraw();
+  } else if (!$styleModal.hidden) {
+    closeStyleModal();
   } else {
     hideInfo();
   }

@@ -5,19 +5,23 @@ const fs = require("fs");
 const fsp = fs.promises;
 const JSZip = require("jszip");
 const mapshaper = require("mapshaper");
+const { testConnection, getFiberCableData, getTableSchema, getDataBounds } = require("../backend/database.js");
 
 function createWin() {
   const win = new BrowserWindow({
     width: 1400, height: 900,
     webPreferences: {
-      preload: path.join(__dirname, "frontend/preload.js"),
+      preload: path.join(__dirname, "preload.js"),
       contextIsolation: true, nodeIntegration: false,
     }
   });
-  win.loadFile(path.join(__dirname, "frontend/index.html"));
+  win.loadFile(path.join(__dirname, "index.html"));
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  // Test database connection on startup
+  await testConnection();
+
   createWin();
   app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWin(); });
 });
@@ -139,5 +143,52 @@ ipcMain.handle("export-aoi-kmz", async (_evt, payload = {}) => {
   } catch (e) {
     console.error("[export-aoi-kmz]", e);
     return { ok:false, error:String(e?.message||e) };
+  }
+});
+
+// ----------------- Database IPC Handlers -----------------
+
+// Load fiber cable data from database
+ipcMain.handle("db:load-fiber-cables", async (_evt, payload = {}) => {
+  try {
+    const { bounds, limit = 1000 } = payload;
+    const geojson = await getFiberCableData(bounds, limit);
+    return { ok: true, geojson, name: "Fiber Cables (Database)" };
+  } catch (e) {
+    console.error("[db:load-fiber-cables]", e);
+    return { ok: false, error: String(e?.message || e) };
+  }
+});
+
+// Get table schema
+ipcMain.handle("db:get-schema", async () => {
+  try {
+    const schema = await getTableSchema();
+    return { ok: true, schema };
+  } catch (e) {
+    console.error("[db:get-schema]", e);
+    return { ok: false, error: String(e?.message || e) };
+  }
+});
+
+// Get data bounds for initial map extent
+ipcMain.handle("db:get-bounds", async () => {
+  try {
+    const bounds = await getDataBounds();
+    return { ok: true, bounds };
+  } catch (e) {
+    console.error("[db:get-bounds]", e);
+    return { ok: false, error: String(e?.message || e) };
+  }
+});
+
+// Test database connection
+ipcMain.handle("db:test-connection", async () => {
+  try {
+    const connected = await testConnection();
+    return { ok: connected, connected };
+  } catch (e) {
+    console.error("[db:test-connection]", e);
+    return { ok: false, error: String(e?.message || e) };
   }
 });

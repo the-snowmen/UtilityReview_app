@@ -29,7 +29,10 @@
     <aside class="layers-panel">
       <div class="layers-header" id="layersHeader">
         <span>Layers</span>
-        <button id="btnImport" class="pill ghost" title="Import data" style="float:right">Import</button>
+        <div style="display: flex; gap: 5px;">
+          <button id="btnLoadDB" class="pill ghost" title="Load from database">DB</button>
+          <button id="btnImport" class="pill ghost" title="Import data">Import</button>
+        </div>
       </div>
       <ul id="layerList" class="layers-list"></ul>
     </aside>

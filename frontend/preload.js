@@ -17,6 +17,12 @@
     exportAoiKmz: (aoi, data, suggestedName="aoi_export.kmz", opts={}) =>
       call("export-aoi-kmz", { aoi, data, suggestedName, opts }),
 
+    // Database operations
+    dbLoadFiberCables: (bounds, limit) => call("db:load-fiber-cables", { bounds, limit }),
+    dbGetSchema: () => call("db:get-schema"),
+    dbGetBounds: () => call("db:get-bounds"),
+    dbTestConnection: () => call("db:test-connection"),
+
     ping: () => "preload ✅",
   });
 
