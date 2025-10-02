@@ -532,4 +532,96 @@ window.addEventListener("keydown", (e) => {
   }
 });
 
+// ---------- Facility Layers ----------
+const FACILITY_LAYERS = {
+  fiberUnderground: { id: null, name: "Underground Fiber Cable", color: "#28a745" },
+  fiberAerial: { id: null, name: "Aerial Fiber Cable", color: "#007bff" },
+  conduit: { id: null, name: "Conduit", color: "#8b0000" },
+  structure: { id: null, name: "Structure", color: "#8b5cf6" }
+};
+
+const $toggleFiberUnderground = document.getElementById("toggleFiberUnderground");
+const $toggleFiberAerial = document.getElementById("toggleFiberAerial");
+const $toggleConduit = document.getElementById("toggleConduit");
+const $toggleStructure = document.getElementById("toggleStructure");
+
+async function toggleFacilityLayer(type) {
+  const facilityConfig = FACILITY_LAYERS[type];
+  if (!facilityConfig) return;
+
+  const checkbox = document.getElementById(`toggle${type.charAt(0).toUpperCase() + type.slice(1)}`);
+  if (!checkbox) return;
+
+  if (checkbox.checked) {
+    // Load the facility layer
+    try {
+      let res;
+      if (type === "fiberUnderground" || type === "fiberAerial") {
+        // Load fiber cables and filter by placement type
+        res = await window.backend.dbLoadFiberCables(null, 100000);
+        if (res?.ok && res.geojson) {
+          // Filter features based on placement type
+          const placementType = type === "fiberUnderground" ? "UNDERGROUND" : "AERIAL";
+          const filteredFeatures = res.geojson.features.filter(f => {
+            const placement = f.properties?.placementt?.toUpperCase();
+            return placement === placementType;
+          });
+          res.geojson = { type: "FeatureCollection", features: filteredFeatures };
+        }
+      } else if (type === "conduit") {
+        res = await window.backend.dbLoadConduit(null, 100000);
+      } else if (type === "structure") {
+        res = await window.backend.dbLoadStructure(null, 100000);
+      }
+
+      if (res?.ok && res.geojson) {
+        // Add the layer with custom styling
+        const id = addGeoJSONLayer(facilityConfig.name, res.geojson, true);
+        facilityConfig.id = id;
+
+        // Update the layer's color in state and re-apply style
+        const layer = getById(id);
+        if (layer) {
+          layer.color = facilityConfig.color;
+          layer.weight = 2;
+          layer.opacity = 0.8;
+
+          // Re-apply the style with the new color
+          if (layer.layer) {
+            const style = {
+              color: facilityConfig.color,
+              weight: 2,
+              opacity: 0.8,
+              fillColor: facilityConfig.color,
+              fillOpacity: type === "structure" ? 0.6 : 0.2
+            };
+            layer.layer.setStyle(style);
+          }
+        }
+
+        console.log(`Loaded ${res.geojson.features?.length || 0} ${facilityConfig.name} features`);
+      } else {
+        console.error(`Failed to load ${facilityConfig.name}:`, res?.error);
+        checkbox.checked = false;
+      }
+    } catch (e) {
+      console.error(`Error loading ${facilityConfig.name}:`, e);
+      checkbox.checked = false;
+    }
+  } else {
+    // Remove the facility layer
+    if (facilityConfig.id) {
+      removeLayer(facilityConfig.id);
+      facilityConfig.id = null;
+    }
+  }
+
+  refreshLegend();
+}
+
+$toggleFiberUnderground?.addEventListener("change", () => toggleFacilityLayer("fiberUnderground"));
+$toggleFiberAerial?.addEventListener("change", () => toggleFacilityLayer("fiberAerial"));
+$toggleConduit?.addEventListener("change", () => toggleFacilityLayer("conduit"));
+$toggleStructure?.addEventListener("change", () => toggleFacilityLayer("structure"));
+
 export {};

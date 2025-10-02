@@ -19,6 +19,8 @@
 
     // Database operations
     dbLoadFiberCables: (bounds, limit) => call("db:load-fiber-cables", { bounds, limit }),
+    dbLoadConduit: (bounds, limit) => call("db:load-conduit", { bounds, limit }),
+    dbLoadStructure: (bounds, limit) => call("db:load-structure", { bounds, limit }),
     dbGetSchema: () => call("db:get-schema"),
     dbGetBounds: () => call("db:get-bounds"),
     dbTestConnection: () => call("db:test-connection"),

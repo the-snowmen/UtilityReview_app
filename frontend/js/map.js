@@ -14,7 +14,12 @@ const AOI_STYLE = {
 // ----------------------------------------------------------------------------
 // Map + basemaps
 // ----------------------------------------------------------------------------
-export const map = L.map($map, { preferCanvas: true, zoomControl: false, renderer: sharedCanvas })
+export const map = L.map($map, {
+  preferCanvas: true,
+  zoomControl: false,
+  renderer: sharedCanvas,
+  worldCopyJump: true
+})
   .setView([39, -96], 4);
 
 export const baseLayers = {

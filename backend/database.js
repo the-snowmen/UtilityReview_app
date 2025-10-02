@@ -31,11 +31,27 @@ async function testConnection() {
 async function getFiberCableData(bounds = null, limit = 1000) {
   try {
     let query = `
-      SELECT
-        *,
-        ST_AsGeoJSON(geom) as geojson_geom
-      FROM raw_data.fibercable_test
-      WHERE geom IS NOT NULL
+      SELECT jsonb_build_object(
+        'type', 'FeatureCollection',
+        'features', COALESCE(jsonb_agg(feature), '[]'::jsonb)
+      ) as geojson
+      FROM (
+        SELECT jsonb_build_object(
+          'type', 'Feature',
+          'geometry', ST_AsGeoJSON(geom)::jsonb,
+          'properties', jsonb_build_object(
+            'cable_name', cable_name,
+            'owner', owner,
+            'placementt', placementt,
+            'cable_cate', cable_cate,
+            'inventory_', inventory_,
+            'serving_ar', serving_ar,
+            'sof_number', sof_number,
+            'feature_type', 'FiberCable'
+          )
+        ) as feature
+        FROM raw_data.fibercable_test
+        WHERE geom IS NOT NULL
     `;
 
     const params = [];
@@ -48,25 +64,105 @@ async function getFiberCableData(bounds = null, limit = 1000) {
 
     query += ` LIMIT $${params.length + 1}`;
     params.push(limit);
+    query += `) features`;
 
     const result = await pool.query(query, params);
-
-    // Convert to GeoJSON format
-    const features = result.rows.map(row => {
-      const { geojson_geom, geom, ...properties } = row;
-      return {
-        type: 'Feature',
-        geometry: JSON.parse(geojson_geom),
-        properties
-      };
-    });
-
-    return {
-      type: 'FeatureCollection',
-      features
-    };
+    return result.rows[0].geojson;
   } catch (err) {
     console.error('Error fetching fiber cable data:', err);
+    throw err;
+  }
+}
+
+// Get conduit data from raw_data.conduit_everstream table
+async function getConduitData(bounds = null, limit = 1000) {
+  try {
+    let query = `
+      SELECT jsonb_build_object(
+        'type', 'FeatureCollection',
+        'features', COALESCE(jsonb_agg(feature), '[]'::jsonb)
+      ) as geojson
+      FROM (
+        SELECT jsonb_build_object(
+          'type', 'Feature',
+          'geometry', ST_AsGeoJSON(geom)::jsonb,
+          'properties', jsonb_build_object(
+            'route_name', route_name,
+            'owner', owner,
+            'inventory_', inventory_,
+            'vacant', vacant,
+            'sof_number', sof_number,
+            'locate_tog', locate_tog,
+            'feature_type', 'Conduit'
+          )
+        ) as feature
+        FROM raw_data.conduit_everstream
+        WHERE geom IS NOT NULL
+    `;
+
+    const params = [];
+
+    if (bounds) {
+      query += ` AND ST_Intersects(geom, ST_MakeEnvelope($1, $2, $3, $4, 4326))`;
+      params.push(bounds.west, bounds.south, bounds.east, bounds.north);
+    }
+
+    query += ` LIMIT $${params.length + 1}`;
+    params.push(limit);
+    query += `) features`;
+
+    const result = await pool.query(query, params);
+    return result.rows[0].geojson;
+  } catch (err) {
+    console.error('Error fetching conduit data:', err);
+    throw err;
+  }
+}
+
+// Get structure data from raw_data.structure_everstream table
+async function getStructureData(bounds = null, limit = 1000) {
+  try {
+    let query = `
+      SELECT jsonb_build_object(
+        'type', 'FeatureCollection',
+        'features', COALESCE(jsonb_agg(feature), '[]'::jsonb)
+      ) as geojson
+      FROM (
+        SELECT jsonb_build_object(
+          'type', 'Feature',
+          'geometry', ST_AsGeoJSON(geom)::jsonb,
+          'properties', jsonb_build_object(
+            'structure_', structure_,
+            'owner', owner,
+            'inventory_', inventory_,
+            'subtypecod', subtypecod,
+            'serving_ar', serving_ar,
+            'sof_number', sof_number,
+            'locate_tog', locate_tog,
+            'latitude', latitude,
+            'longitude', longitude,
+            'feature_type', 'Structure'
+          )
+        ) as feature
+        FROM raw_data.structure_everstream
+        WHERE geom IS NOT NULL
+    `;
+
+    const params = [];
+
+    if (bounds) {
+      query += ` AND ST_Intersects(geom, ST_MakeEnvelope($1, $2, $3, $4, 4326))`;
+      params.push(bounds.west, bounds.south, bounds.east, bounds.north);
+    }
+
+    query += ` LIMIT $${params.length + 1}`;
+    params.push(limit);
+    query += `) features`;
+
+    const result = await pool.query(query, params);
+    return result.rows[0].geojson;
+  } catch (err) {
+    console.error('Error fetching structure data:', err);
     throw err;
   }
 }
@@ -124,6 +220,8 @@ async function closeConnection() {
 module.exports = {
   testConnection,
   getFiberCableData,
+  getConduitData,
+  getStructureData,
   getTableSchema,
   getDataBounds,
   closeConnection

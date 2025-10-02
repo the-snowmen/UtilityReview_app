@@ -172,6 +172,50 @@ html, body { height: 100%; margin: 0; }
 /* Checkbox spacing */
 .layer-item .chk { transform: translateY(1px); }
 
+/* Facilities Section */
+.facilities-section {
+  padding: 8px 6px;
+  border-bottom: 1px solid rgba(255,255,255,0.10);
+  margin-bottom: 8px;
+}
+
+.facilities-header {
+  padding: 4px 6px 8px;
+  font: 600 12px/1 system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  color: var(--text-muted);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.facility-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  cursor: pointer;
+  user-select: none;
+  font: 13px system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  color: var(--text);
+  border-radius: 8px;
+  transition: background 0.15s ease;
+}
+
+.facility-toggle:hover {
+  background: rgba(255,255,255,0.06);
+}
+
+.facility-toggle input[type="checkbox"] {
+  margin: 0;
+  cursor: pointer;
+}
+
+.facility-indicator {
+  width: 16px;
+  height: 3px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
 /* Leaflet left controls shifted so they don't sit under the panel */
 .leaflet-left { left: calc(var(--panel-w) + var(--panel-gap) + 10px); }
 

@@ -97,13 +97,24 @@ async function clipWithMapshaper(fc, aoiFC) {
     "aoi.json": JSON.stringify(aoiFC),
   };
 
-  const res = await mapshaper.runCommands(cmd, inputs);
-  const out = JSON.parse(res["out.json"] || "{}");
+  try {
+    const res = await mapshaper.runCommands(cmd, inputs);
 
-  if (!out || !out.type) return { type: "FeatureCollection", features: [] };
-  if (out.type === "FeatureCollection") return out;
-  if (out.type === "Feature") return { type: "FeatureCollection", features: [out] };
-  return { type: "FeatureCollection", features: [] };
+    if (!res || !res["out.json"]) {
+      console.warn("Mapshaper clip failed (no output), returning empty FeatureCollection");
+      return { type: "FeatureCollection", features: [] };
+    }
+
+    const out = JSON.parse(res["out.json"] || "{}");
+
+    if (!out || !out.type) return { type: "FeatureCollection", features: [] };
+    if (out.type === "FeatureCollection") return out;
+    if (out.type === "Feature") return { type: "FeatureCollection", features: [out] };
+    return { type: "FeatureCollection", features: [] };
+  } catch (err) {
+    console.error("Mapshaper clip error:", err.message || err);
+    return { type: "FeatureCollection", features: [] };
+  }
 }
 
 function drawLegendPng(layersMeta) {
@@ -303,11 +314,18 @@ async function exportClippedKmz(aoi, data, outPath, opts = {}) {
 
   const layersIn = Array.isArray(data) ? data : [{ name: "Layer", style: { baseColor: "#ff3333", weight: 2, opacity: 1 }, features: data }];
 
+  console.log(`[exportClippedKmz] Processing ${layersIn.length} layers`);
+
   const layersClipped = [];
   for (const L of layersIn) {
-    if (!L?.features?.features?.length) continue;
+    if (!L?.features?.features?.length) {
+      console.log(`[exportClippedKmz] Skipping layer "${L?.name}" - no features`);
+      continue;
+    }
 
+    console.log(`[exportClippedKmz] Clipping layer "${L.name}" with ${L.features.features.length} features`);
     const clipped = await clipWithMapshaper(L.features, aoiFC);
+    console.log(`[exportClippedKmz] Clipped result: ${clipped?.features?.length || 0} features`);
     if (!clipped?.features?.length) continue;
 
     const keepField = L.style?.styleBy?.field || null;

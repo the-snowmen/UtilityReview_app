@@ -5,7 +5,7 @@ const fs = require("fs");
 const fsp = fs.promises;
 const JSZip = require("jszip");
 const mapshaper = require("mapshaper");
-const { testConnection, getFiberCableData, getTableSchema, getDataBounds } = require("../backend/database.js");
+const { testConnection, getFiberCableData, getConduitData, getStructureData, getTableSchema, getDataBounds } = require("../backend/database.js");
 
 function createWin() {
   const win = new BrowserWindow({
@@ -31,6 +31,11 @@ app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(
 async function mapshaperToGeoJSONFromPath(pth) {
   const cmd = `-i "${pth}" -o format=geojson out.json`;
   const res = await mapshaper.runCommands(cmd);
+
+  if (!res || !res["out.json"]) {
+    throw new Error("Mapshaper failed to process file. For shapefiles, ensure .shp, .dbf, .shx files are all present.");
+  }
+
   const out = JSON.parse(res["out.json"] || "{}");
   if (out.type === "FeatureCollection") return out;
   if (out.type === "Feature") return { type: "FeatureCollection", features: [out] };
@@ -133,7 +138,7 @@ ipcMain.handle("export-aoi-kmz", async (_evt, payload = {}) => {
     });
     if (canceled || !filePath) return { ok: false, canceled: true };
 
-    const { exportClippedKmz } = require("./backend/export/clipToKmz.js");
+    const { exportClippedKmz } = require("../backend/export/clipToKmz.js");
     await exportClippedKmz(aoi, exportData, filePath, {
       includeAoi: opts.includeAoi !== false,
       keepAttributes: false,
@@ -156,6 +161,30 @@ ipcMain.handle("db:load-fiber-cables", async (_evt, payload = {}) => {
     return { ok: true, geojson, name: "Fiber Cables (Database)" };
   } catch (e) {
     console.error("[db:load-fiber-cables]", e);
+    return { ok: false, error: String(e?.message || e) };
+  }
+});
+
+// Load conduit data from database
+ipcMain.handle("db:load-conduit", async (_evt, payload = {}) => {
+  try {
+    const { bounds, limit = 1000 } = payload;
+    const geojson = await getConduitData(bounds, limit);
+    return { ok: true, geojson, name: "Conduit (Database)" };
+  } catch (e) {
+    console.error("[db:load-conduit]", e);
+    return { ok: false, error: String(e?.message || e) };
+  }
+});
+
+// Load structure data from database
+ipcMain.handle("db:load-structure", async (_evt, payload = {}) => {
+  try {
+    const { bounds, limit = 1000 } = payload;
+    const geojson = await getStructureData(bounds, limit);
+    return { ok: true, geojson, name: "Structure (Database)" };
+  } catch (e) {
+    console.error("[db:load-structure]", e);
     return { ok: false, error: String(e?.message || e) };
   }
 });
