@@ -85,10 +85,27 @@ function guessLayerGeomType(fc) {
 
 /** FIX: proper in-memory mapshaper call + correct layer names (no ".json" suffix) */
 async function clipWithMapshaper(fc, aoiFC) {
+  // Log bounding boxes for debugging
+  const getBounds = (geojson) => {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const f of geojson?.features || []) {
+      eachCoord(f.geometry, ([x,y]) => {
+        if (x < minX) minX = x; if (y < minY) minY = y;
+        if (x > maxX) maxX = x; if (y > maxY) maxY = y;
+      });
+    }
+    return { minX, minY, maxX, maxY };
+  };
+
+  const srcBounds = getBounds(fc);
+  const aoiBounds = getBounds(aoiFC);
+  console.log(`[clipWithMapshaper] Source bounds:`, srcBounds);
+  console.log(`[clipWithMapshaper] AOI bounds:`, aoiBounds);
+
   const cmd = [
-    "-i", "src.json", "name=src",
-    "-i", "aoi.json", "name=aoi",
-    "-clip", "target=src", "aoi",
+    "-i", "src.json",
+    "-i", "aoi.json",
+    "-clip", "aoi.json",
     "-o", "format=geojson", "out.json"
   ].join(" ");
 
@@ -102,6 +119,7 @@ async function clipWithMapshaper(fc, aoiFC) {
 
     if (!res || !res["out.json"]) {
       console.warn("Mapshaper clip failed (no output), returning empty FeatureCollection");
+      console.warn("This usually means the AOI doesn't intersect with the features");
       return { type: "FeatureCollection", features: [] };
     }
 
@@ -323,9 +341,19 @@ async function exportClippedKmz(aoi, data, outPath, opts = {}) {
       continue;
     }
 
-    console.log(`[exportClippedKmz] Clipping layer "${L.name}" with ${L.features.features.length} features`);
-    const clipped = await clipWithMapshaper(L.features, aoiFC);
-    console.log(`[exportClippedKmz] Clipped result: ${clipped?.features?.length || 0} features`);
+    let clipped;
+    // Check if this layer is pre-clipped (e.g., by PostGIS)
+    if (L._preClipped) {
+      // DB layers are already clipped by PostGIS
+      console.log(`[exportClippedKmz] Using pre-clipped layer "${L.name}" with ${L.features.features.length} features`);
+      clipped = L.features;
+    } else {
+      // Regular layers need mapshaper clipping
+      console.log(`[exportClippedKmz] Clipping layer "${L.name}" with ${L.features.features.length} features`);
+      clipped = await clipWithMapshaper(L.features, aoiFC);
+      console.log(`[exportClippedKmz] Clipped result: ${clipped?.features?.length || 0} features`);
+    }
+
     if (!clipped?.features?.length) continue;
 
     const keepField = L.style?.styleBy?.field || null;

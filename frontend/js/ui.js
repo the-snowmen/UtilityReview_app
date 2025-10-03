@@ -5,7 +5,7 @@ import {
   addGeoJSONLayer, removeLayer, setVisibility,
   syncMapOrder, zoomToLayer,
   setCategoricalStyle, clearCategoricalStyle,
-  addDebugMarker
+  addDebugMarker, applyLayerStyle
 } from "./layers.js";
 import { refreshLegend } from "./legend.js";
 import { toggleCommentMode, getCommentsGeoJSON } from "./features/comments.js";
@@ -14,7 +14,6 @@ import { toggleCommentMode, getCommentsGeoJSON } from "./features/comments.js";
 const $basemap       = document.getElementById("basemapSelect");
 const $layerList     = document.getElementById("layerList");
 const $btnImport     = document.getElementById("btnImport");
-const $btnLoadDB     = document.getElementById("btnLoadDB");
 
 // HUD
 const $hudCursor     = document.getElementById("hudCursor");
@@ -77,9 +76,6 @@ $hudCenterBtn?.addEventListener("click", () => {
 // ---------- import ----------
 $btnImport?.addEventListener("click", onImportFiles);
 
-// ---------- database ----------
-$btnLoadDB?.addEventListener("click", onLoadFromDatabase);
-
 async function onImportFiles() {
   if (!window.backend?.selectFiles || !window.backend?.ingestFile) {
     alert("IPC not available. Check preload/electron wiring.");
@@ -100,48 +96,6 @@ async function onImportFiles() {
       alert(`Failed to ingest:\n${p}\n${res?.error || ""}`);
     }
   }
-  setOrderFromDom($layerList);
-  syncMapOrder();
-  refreshLegend();
-}
-
-async function onLoadFromDatabase() {
-  if (!window.backend?.dbLoadFiberCables) {
-    alert("Database IPC not available. Check preload/electron wiring.");
-    return;
-  }
-
-  try {
-    // Test connection first
-    const connTest = await window.backend.dbTestConnection();
-    if (!connTest?.ok || !connTest?.connected) {
-      alert("Database connection failed. Please check your .env configuration and ensure the database is running.");
-      return;
-    }
-
-    // Load fiber cable data (no spatial filtering to see all features)
-    console.log("Loading fiber cable data from database...");
-    const res = await window.backend.dbLoadFiberCables(null, 100000);
-
-    if (res?.ok && res.geojson) {
-      console.log(`Loaded ${res.geojson.features?.length || 0} fiber cable features`);
-      const id = addGeoJSONLayer(res.name || "Fiber Cables", res.geojson, true);
-      const li = buildLayerItem(id, getById(id));
-      $layerList.prepend(li);
-
-      // Zoom to the loaded data if it has features
-      if (res.geojson.features?.length > 0) {
-        zoomToLayer(id);
-      }
-    } else {
-      console.error("Database load failed:", res?.error || res);
-      alert(`Failed to load from database:\n${res?.error || "Unknown error"}`);
-    }
-  } catch (e) {
-    console.error("Database load error:", e);
-    alert(`Database error: ${e.message}`);
-  }
-
   setOrderFromDom($layerList);
   syncMapOrder();
   refreshLegend();
@@ -273,29 +227,93 @@ async function onExportAoiKmz(e) {
   if (!aoi) { alert("Draw or set an AOI first."); return; }
 
   const layersForExport = [];
+
+  // Extract first feature geometry for DB clipping (PostGIS expects single geometry)
+  const aoiGeom = aoi.features?.[0] || aoi;
+
   for (const id of state.order) {
     const st = state.layers.get(id);
-    if (!st?.visible || !st?.source?.features?.length) continue;
+    if (!st?.visible) continue;
 
-    const fc = st.source;
     const sb = st.styleBy;
     const hiddenSet = sb?.hidden || null;
+    const styleConfig = {
+      baseColor: st.color,
+      weight: st.weight,
+      opacity: st.opacity,
+      styleBy: sb ? {
+        field: sb.field,
+        rules: sb.rules || {},
+        defaultColor: sb.defaultColor || st.color,
+        hidden: hiddenSet ? [...hiddenSet] : [],
+      } : null
+    };
 
-    layersForExport.push({
-      name: st.name,
-      style: {
-        baseColor: st.color,
-        weight: st.weight,
-        opacity: st.opacity,
-        styleBy: sb ? {
-          field: sb.field,
-          rules: sb.rules || {},
-          defaultColor: sb.defaultColor || st.color,
-          hidden: hiddenSet ? [...hiddenSet] : [],
-        } : null
-      },
-      features: fc,
-    });
+    // Check if this is a database layer by name
+    if (st.name === "Underground Fiber Cable" || st.name === "Aerial Fiber Cable") {
+      console.log(`[Export] Clipping DB layer: ${st.name}`);
+      try {
+        const res = await window.backend.dbClipFiberCables(aoiGeom, 100000);
+        if (res?.ok && res.geojson?.features?.length) {
+          // Filter by placement type
+          const placementType = st.name === "Underground Fiber Cable" ? "UNDERGROUND" : "AERIAL";
+          const filtered = {
+            type: "FeatureCollection",
+            features: res.geojson.features.filter(f =>
+              f.properties?.placementt?.toUpperCase() === placementType
+            )
+          };
+          if (filtered.features.length > 0) {
+            layersForExport.push({
+              name: st.name,
+              style: styleConfig,
+              features: filtered,
+              _preClipped: true  // Mark as pre-clipped by PostGIS
+            });
+          }
+        }
+      } catch (err) {
+        console.error(`Failed to clip ${st.name}:`, err);
+      }
+    } else if (st.name === "Conduit") {
+      console.log(`[Export] Clipping DB layer: ${st.name}`);
+      try {
+        const res = await window.backend.dbClipConduit(aoiGeom, 100000);
+        if (res?.ok && res.geojson?.features?.length) {
+          layersForExport.push({
+            name: st.name,
+            style: styleConfig,
+            features: res.geojson,
+            _preClipped: true
+          });
+        }
+      } catch (err) {
+        console.error(`Failed to clip ${st.name}:`, err);
+      }
+    } else if (st.name === "Structure") {
+      console.log(`[Export] Clipping DB layer: ${st.name}`);
+      try {
+        const res = await window.backend.dbClipStructure(aoiGeom, 100000);
+        if (res?.ok && res.geojson?.features?.length) {
+          layersForExport.push({
+            name: st.name,
+            style: styleConfig,
+            features: res.geojson,
+            _preClipped: true
+          });
+        }
+      } catch (err) {
+        console.error(`Failed to clip ${st.name}:`, err);
+      }
+    } else if (st?.source?.features?.length) {
+      // Regular imported layers - need mapshaper clipping
+      layersForExport.push({
+        name: st.name,
+        style: styleConfig,
+        features: st.source,
+        _preClipped: false
+      });
+    }
   }
 
   const comments = getCommentsGeoJSON();
@@ -303,17 +321,23 @@ async function onExportAoiKmz(e) {
     layersForExport.push({
       name: "Comments",
       style: { baseColor: "#f59e0b", weight: 2, opacity: 1, styleBy: null },
-      features: comments
+      features: comments,
+      _preClipped: false  // Comments need clipping
     });
   }
 
-  if (!layersForExport.length) { alert("No visible features to export."); return; }
+  if (!layersForExport.length) { alert("No features found within AOI to export."); return; }
   if (!window.backend?.exportAoiKmz) { alert("Export API missing from preload."); return; }
 
-  const opts = { includeAoi: !!$chkIncludeAoi?.checked };
+  const opts = {
+    includeAoi: !!$chkIncludeAoi?.checked
+  };
+
   try {
+    console.log(`[Export] Exporting ${layersForExport.length} layers to KMZ`);
     const res = await window.backend.exportAoiKmz(aoi, layersForExport, "aoi_export.kmz", opts);
     if (!res?.ok && !res?.canceled) alert("Export failed: " + (res?.error || "unknown"));
+    else if (res?.ok) console.log(`[Export] Successfully exported to: ${res.path}`);
   } catch (err) {
     console.error("[exportAoiKmz]", err);
     alert("Export failed: " + (err?.message || err));
@@ -351,6 +375,11 @@ function openStyleModal(layerId) {
 
   $styleModalTitle.textContent = `Style: ${layer.name}`;
 
+  // Populate current style values
+  $styleBaseColor.value = layer.color || "#ff3333";
+  $styleBaseWeight.value = layer.weight || 2;
+  $styleBaseOpacity.value = layer.opacity || 1;
+
   // Populate field dropdown
   populateFieldDropdown(layer);
 
@@ -364,10 +393,10 @@ function populateFieldDropdown(layer) {
   // Clear existing options
   $styleFieldSelect.innerHTML = '<option value="">Select a field...</option>';
 
-  if (!layer.geojson?.features?.length) return;
+  if (!layer.source?.features?.length) return;
 
   // Get all property keys from the first feature
-  const firstFeature = layer.geojson.features[0];
+  const firstFeature = layer.source.features[0];
   if (!firstFeature?.properties) return;
 
   const fields = Object.keys(firstFeature.properties);
@@ -399,13 +428,13 @@ function scanFieldValues() {
   if (!currentStyleLayerId || !$styleFieldSelect.value) return;
 
   const layer = getById(currentStyleLayerId);
-  if (!layer?.geojson?.features) return;
+  if (!layer?.source?.features) return;
 
   const fieldName = $styleFieldSelect.value;
   const uniqueValues = new Set();
 
   // Collect unique values
-  layer.geojson.features.forEach(feature => {
+  layer.source.features.forEach(feature => {
     const value = feature.properties?.[fieldName];
     if (value !== null && value !== undefined && value !== '') {
       uniqueValues.add(String(value));
@@ -461,7 +490,7 @@ function applyCategoricalStyle() {
   if (!currentStyleLayerId || !$styleFieldSelect.value) return;
 
   const layer = getById(currentStyleLayerId);
-  if (!layer?.leafletLayer) return;
+  if (!layer?.layer) return;
 
   const fieldName = $styleFieldSelect.value;
   const colorMappings = {};
@@ -497,13 +526,11 @@ function applyBasicStyle() {
   const opacity = parseFloat($styleBaseOpacity.value) || 1;
 
   const layer = getById(currentStyleLayerId);
-  if (layer?.leafletLayer) {
-    layer.leafletLayer.setStyle({
-      color: color,
-      weight: weight,
-      opacity: opacity,
-      fillOpacity: opacity * 0.3
-    });
+  if (layer) {
+    layer.color = color;
+    layer.weight = weight;
+    layer.opacity = opacity;
+    applyLayerStyle(currentStyleLayerId);
   }
 }
 
@@ -579,7 +606,7 @@ async function toggleFacilityLayer(type) {
         const id = addGeoJSONLayer(facilityConfig.name, res.geojson, true);
         facilityConfig.id = id;
 
-        // Update the layer's color in state and re-apply style
+        // Add to layer list UI
         const layer = getById(id);
         if (layer) {
           layer.color = facilityConfig.color;
@@ -597,6 +624,12 @@ async function toggleFacilityLayer(type) {
             };
             layer.layer.setStyle(style);
           }
+
+          // Add to layer list UI so it can be styled and managed
+          const li = buildLayerItem(id, layer);
+          $layerList.prepend(li);
+          setOrderFromDom($layerList);
+          syncMapOrder();
         }
 
         console.log(`Loaded ${res.geojson.features?.length || 0} ${facilityConfig.name} features`);
@@ -612,6 +645,10 @@ async function toggleFacilityLayer(type) {
     // Remove the facility layer
     if (facilityConfig.id) {
       removeLayer(facilityConfig.id);
+      // Remove from UI
+      const li = [...$layerList.children].find(el => el.dataset.layerId === facilityConfig.id);
+      if (li) li.remove();
+      setOrderFromDom($layerList);
       facilityConfig.id = null;
     }
   }

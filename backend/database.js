@@ -212,6 +212,161 @@ async function getDataBounds() {
   }
 }
 
+// Diagnostic: Check coordinate systems and validity
+async function diagnoseFiberCableGeometry(tableName = 'fibercable_test') {
+  try {
+    const query = `
+      WITH geom_check AS (
+        SELECT
+          cable_name,
+          ST_SRID(geom) as srid,
+          ST_X(ST_Centroid(geom)) as lon,
+          ST_Y(ST_Centroid(geom)) as lat,
+          GeometryType(geom) as geom_type
+        FROM raw_data.${tableName}
+        WHERE geom IS NOT NULL
+        LIMIT 100
+      )
+      SELECT
+        COUNT(*) as total_checked,
+        COUNT(DISTINCT srid) as unique_srids,
+        MIN(lon) as min_lon,
+        MAX(lon) as max_lon,
+        MIN(lat) as min_lat,
+        MAX(lat) as max_lat,
+        COUNT(CASE WHEN lon < -180 OR lon > 180 THEN 1 END) as invalid_lon,
+        COUNT(CASE WHEN lat < -90 OR lat > 90 THEN 1 END) as invalid_lat,
+        array_agg(DISTINCT srid) as srids
+      FROM geom_check;
+    `;
+
+    const result = await pool.query(query);
+    console.log('Geometry Diagnostics:', result.rows[0]);
+    return result.rows[0];
+  } catch (err) {
+    console.error('Error diagnosing geometry:', err);
+    throw err;
+  }
+}
+
+// Clip fiber cable data with AOI polygon (PostGIS clipping)
+async function clipFiberCableData(aoiGeojson, limit = 100000) {
+  try {
+    const query = `
+      SELECT jsonb_build_object(
+        'type', 'FeatureCollection',
+        'features', COALESCE(jsonb_agg(feature), '[]'::jsonb)
+      ) as geojson
+      FROM (
+        SELECT jsonb_build_object(
+          'type', 'Feature',
+          'geometry', ST_AsGeoJSON(ST_Intersection(f.geom, aoi.geom))::jsonb,
+          'properties', jsonb_build_object(
+            'cable_name', f.cable_name,
+            'owner', f.owner,
+            'placementt', f.placementt,
+            'cable_cate', f.cable_cate,
+            'inventory_', f.inventory_,
+            'serving_ar', f.serving_ar,
+            'sof_number', f.sof_number,
+            'feature_type', 'FiberCable'
+          )
+        ) as feature
+        FROM raw_data.fibercable_test f,
+        LATERAL (SELECT ST_GeomFromGeoJSON($1) as geom) aoi
+        WHERE f.geom IS NOT NULL
+          AND ST_Intersects(f.geom, aoi.geom)
+        LIMIT $2
+      ) features;
+    `;
+
+    const result = await pool.query(query, [JSON.stringify(aoiGeojson.geometry || aoiGeojson), limit]);
+    return result.rows[0].geojson;
+  } catch (err) {
+    console.error('Error clipping fiber cable data:', err);
+    throw err;
+  }
+}
+
+// Clip conduit data with AOI polygon
+async function clipConduitData(aoiGeojson, limit = 100000) {
+  try {
+    const query = `
+      SELECT jsonb_build_object(
+        'type', 'FeatureCollection',
+        'features', COALESCE(jsonb_agg(feature), '[]'::jsonb)
+      ) as geojson
+      FROM (
+        SELECT jsonb_build_object(
+          'type', 'Feature',
+          'geometry', ST_AsGeoJSON(ST_Intersection(f.geom, aoi.geom))::jsonb,
+          'properties', jsonb_build_object(
+            'route_name', f.route_name,
+            'owner', f.owner,
+            'inventory_', f.inventory_,
+            'vacant', f.vacant,
+            'sof_number', f.sof_number,
+            'locate_tog', f.locate_tog,
+            'feature_type', 'Conduit'
+          )
+        ) as feature
+        FROM raw_data.conduit_everstream f,
+        LATERAL (SELECT ST_GeomFromGeoJSON($1) as geom) aoi
+        WHERE f.geom IS NOT NULL
+          AND ST_Intersects(f.geom, aoi.geom)
+        LIMIT $2
+      ) features;
+    `;
+
+    const result = await pool.query(query, [JSON.stringify(aoiGeojson.geometry || aoiGeojson), limit]);
+    return result.rows[0].geojson;
+  } catch (err) {
+    console.error('Error clipping conduit data:', err);
+    throw err;
+  }
+}
+
+// Clip structure data with AOI polygon
+async function clipStructureData(aoiGeojson, limit = 100000) {
+  try {
+    const query = `
+      SELECT jsonb_build_object(
+        'type', 'FeatureCollection',
+        'features', COALESCE(jsonb_agg(feature), '[]'::jsonb)
+      ) as geojson
+      FROM (
+        SELECT jsonb_build_object(
+          'type', 'Feature',
+          'geometry', ST_AsGeoJSON(ST_Intersection(f.geom, aoi.geom))::jsonb,
+          'properties', jsonb_build_object(
+            'structure_', f.structure_,
+            'owner', f.owner,
+            'inventory_', f.inventory_,
+            'subtypecod', f.subtypecod,
+            'serving_ar', f.serving_ar,
+            'sof_number', f.sof_number,
+            'locate_tog', f.locate_tog,
+            'latitude', f.latitude,
+            'longitude', f.longitude,
+            'feature_type', 'Structure'
+          )
+        ) as feature
+        FROM raw_data.structure_everstream f,
+        LATERAL (SELECT ST_GeomFromGeoJSON($1) as geom) aoi
+        WHERE f.geom IS NOT NULL
+          AND ST_Intersects(f.geom, aoi.geom)
+        LIMIT $2
+      ) features;
+    `;
+
+    const result = await pool.query(query, [JSON.stringify(aoiGeojson.geometry || aoiGeojson), limit]);
+    return result.rows[0].geojson;
+  } catch (err) {
+    console.error('Error clipping structure data:', err);
+    throw err;
+  }
+}
+
 // Close database connection
 async function closeConnection() {
   await pool.end();
@@ -224,5 +379,9 @@ module.exports = {
   getStructureData,
   getTableSchema,
   getDataBounds,
+  diagnoseFiberCableGeometry,
+  clipFiberCableData,
+  clipConduitData,
+  clipStructureData,
   closeConnection
 };

@@ -5,7 +5,7 @@ const fs = require("fs");
 const fsp = fs.promises;
 const JSZip = require("jszip");
 const mapshaper = require("mapshaper");
-const { testConnection, getFiberCableData, getConduitData, getStructureData, getTableSchema, getDataBounds } = require("../backend/database.js");
+const { testConnection, getFiberCableData, getConduitData, getStructureData, getTableSchema, getDataBounds, diagnoseFiberCableGeometry, clipFiberCableData, clipConduitData, clipStructureData } = require("../backend/database.js");
 
 function createWin() {
   const win = new BrowserWindow({
@@ -218,6 +218,57 @@ ipcMain.handle("db:test-connection", async () => {
     return { ok: connected, connected };
   } catch (e) {
     console.error("[db:test-connection]", e);
+    return { ok: false, error: String(e?.message || e) };
+  }
+});
+
+// Diagnose geometry issues
+ipcMain.handle("db:diagnose-geometry", async (_evt, payload = {}) => {
+  try {
+    const { tableName = 'fibercable_test' } = payload;
+    const diagnostics = await diagnoseFiberCableGeometry(tableName);
+    return { ok: true, diagnostics };
+  } catch (e) {
+    console.error("[db:diagnose-geometry]", e);
+    return { ok: false, error: String(e?.message || e) };
+  }
+});
+
+// Clip fiber cable data with AOI
+ipcMain.handle("db:clip-fiber-cables", async (_evt, payload = {}) => {
+  try {
+    const { aoi, limit = 100000 } = payload;
+    if (!aoi) throw new Error("Missing AOI for clipping");
+    const geojson = await clipFiberCableData(aoi, limit);
+    return { ok: true, geojson, name: "Fiber Cables (Clipped)" };
+  } catch (e) {
+    console.error("[db:clip-fiber-cables]", e);
+    return { ok: false, error: String(e?.message || e) };
+  }
+});
+
+// Clip conduit data with AOI
+ipcMain.handle("db:clip-conduit", async (_evt, payload = {}) => {
+  try {
+    const { aoi, limit = 100000 } = payload;
+    if (!aoi) throw new Error("Missing AOI for clipping");
+    const geojson = await clipConduitData(aoi, limit);
+    return { ok: true, geojson, name: "Conduit (Clipped)" };
+  } catch (e) {
+    console.error("[db:clip-conduit]", e);
+    return { ok: false, error: String(e?.message || e) };
+  }
+});
+
+// Clip structure data with AOI
+ipcMain.handle("db:clip-structure", async (_evt, payload = {}) => {
+  try {
+    const { aoi, limit = 100000 } = payload;
+    if (!aoi) throw new Error("Missing AOI for clipping");
+    const geojson = await clipStructureData(aoi, limit);
+    return { ok: true, geojson, name: "Structure (Clipped)" };
+  } catch (e) {
+    console.error("[db:clip-structure]", e);
     return { ok: false, error: String(e?.message || e) };
   }
 });

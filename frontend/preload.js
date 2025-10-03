@@ -24,6 +24,11 @@
     dbGetSchema: () => call("db:get-schema"),
     dbGetBounds: () => call("db:get-bounds"),
     dbTestConnection: () => call("db:test-connection"),
+    dbDiagnoseGeometry: (tableName) => call("db:diagnose-geometry", { tableName }),
+    // Database clipping with AOI
+    dbClipFiberCables: (aoi, limit) => call("db:clip-fiber-cables", { aoi, limit }),
+    dbClipConduit: (aoi, limit) => call("db:clip-conduit", { aoi, limit }),
+    dbClipStructure: (aoi, limit) => call("db:clip-structure", { aoi, limit }),
 
     ping: () => "preload ✅",
   });
