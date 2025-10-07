@@ -225,7 +225,7 @@ ipcMain.handle("db:test-connection", async () => {
 // Diagnose geometry issues
 ipcMain.handle("db:diagnose-geometry", async (_evt, payload = {}) => {
   try {
-    const { tableName = 'fibercable_test' } = payload;
+    const { tableName = 'fibercable' } = payload;
     const diagnostics = await diagnoseFiberCableGeometry(tableName);
     return { ok: true, diagnostics };
   } catch (e) {

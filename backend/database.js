@@ -27,7 +27,7 @@ async function testConnection() {
   }
 }
 
-// Get fiber cable data from raw_data.fibercable_test table
+// Get fiber cable data from raw_data.fibercable table
 async function getFiberCableData(bounds = null, limit = 1000) {
   try {
     let query = `
@@ -50,7 +50,7 @@ async function getFiberCableData(bounds = null, limit = 1000) {
             'feature_type', 'FiberCable'
           )
         ) as feature
-        FROM raw_data.fibercable_test
+        FROM raw_data.fibercable
         WHERE geom IS NOT NULL
     `;
 
@@ -168,7 +168,7 @@ async function getStructureData(bounds = null, limit = 1000) {
 }
 
 // Get table schema information
-async function getTableSchema(tableName = 'raw_data.fibercable_test') {
+async function getTableSchema(tableName = 'raw_data.fibercable') {
   try {
     const query = `
       SELECT
@@ -178,7 +178,7 @@ async function getTableSchema(tableName = 'raw_data.fibercable_test') {
         column_default
       FROM information_schema.columns
       WHERE table_schema = 'raw_data'
-        AND table_name = 'fibercable_test'
+        AND table_name = 'fibercable'
       ORDER BY ordinal_position;
     `;
 
@@ -200,7 +200,7 @@ async function getDataBounds() {
         ST_XMax(ST_Extent(geom)) as max_x,
         ST_YMax(ST_Extent(geom)) as max_y,
         COUNT(*) as feature_count
-      FROM raw_data.fibercable_test
+      FROM raw_data.fibercable
       WHERE geom IS NOT NULL;
     `;
 
@@ -213,7 +213,7 @@ async function getDataBounds() {
 }
 
 // Diagnostic: Check coordinate systems and validity
-async function diagnoseFiberCableGeometry(tableName = 'fibercable_test') {
+async function diagnoseFiberCableGeometry(tableName = 'fibercable') {
   try {
     const query = `
       WITH geom_check AS (
@@ -272,7 +272,7 @@ async function clipFiberCableData(aoiGeojson, limit = 100000) {
             'feature_type', 'FiberCable'
           )
         ) as feature
-        FROM raw_data.fibercable_test f,
+        FROM raw_data.fibercable f,
         LATERAL (SELECT ST_GeomFromGeoJSON($1) as geom) aoi
         WHERE f.geom IS NOT NULL
           AND ST_Intersects(f.geom, aoi.geom)
