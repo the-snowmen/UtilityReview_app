@@ -24,11 +24,40 @@ function swatchPoint(color, px = 2) {
       <circle cx="${d/2}" cy="${d/2}" r="${r}" fill="${color}" stroke="rgba(0,0,0,.6)" stroke-width="0.5"/>
     </svg>`;
 }
+function swatchSymbol(symbol, color) {
+  return `<span style="
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    font-weight: bold;
+    font-size: 12px;
+    color: ${color};
+    background: white;
+    border: 2px solid ${color};
+    border-radius: 50%;
+    vertical-align: middle;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+  ">${symbol}</span>`;
+}
 function firstGeomType(st) {
   const f = st?.source?.features?.find?.(x => x?.geometry?.type);
   return f?.geometry?.type || "Unknown";
 }
-function swatchFor(st) {
+function hasSymbols(st) {
+  return st?.source?.features?.some?.(f => f?.properties?.symbol);
+}
+function getSymbolsInLayer(st) {
+  const symbols = new Set();
+  st?.source?.features?.forEach?.(f => {
+    const sym = f?.properties?.symbol;
+    if (sym) symbols.add(sym);
+  });
+  return Array.from(symbols).sort();
+}
+function swatchFor(st, symbol = null) {
+  if (symbol) return swatchSymbol(symbol, st.color);
   const g = firstGeomType(st);
   if (g.includes("Point")) return swatchPoint(st.color, st.weight);
   if (g.includes("Line"))  return swatchLine(st.color, st.weight);
@@ -159,6 +188,8 @@ control.addTo(map);
 function renderGroup(st) {
   // Build rows
   let rows = "";
+  const layerHasSymbols = hasSymbols(st);
+
   if (st.styleBy?.field) {
     const field = st.styleBy.field;
     const hidden = st.styleBy.hidden || new Set();
@@ -168,16 +199,41 @@ function renderGroup(st) {
       if (hidden.has(String(k))) continue;
       const color = rules[k] || st.styleBy.defaultColor || st.color;
       const g = firstGeomType(st);
-      const sw = g.includes("Point")
-        ? swatchPoint(color, st.weight)
-        : g.includes("Line")
-          ? swatchLine(color, st.weight)
-          : swatchFill(color);
+
+      // For structure layers with symbols, show the symbol for each category
+      let sw;
+      if (layerHasSymbols && g.includes("Point")) {
+        // Find a feature with this category value to get its symbol
+        const feat = st?.source?.features?.find?.(f => String(f?.properties?.[field]) === String(k));
+        const symbol = feat?.properties?.symbol;
+        sw = symbol ? swatchSymbol(symbol, color) : swatchPoint(color, st.weight);
+      } else {
+        sw = g.includes("Point")
+          ? swatchPoint(color, st.weight)
+          : g.includes("Line")
+            ? swatchLine(color, st.weight)
+            : swatchFill(color);
+      }
       rows += entryRow({ label: `${field} = ${k}`, html: sw });
     }
     if (!rows) rows = `<div class="ur-legend-row muted">(all categories hidden)</div>`;
   } else {
-    rows = entryRow({ label: "Features", html: swatchFor(st) });
+    // If layer has symbols, show all unique symbols
+    if (layerHasSymbols) {
+      const symbols = getSymbolsInLayer(st);
+      const symbolLabels = {
+        '?': 'Unknown',
+        'M': 'Manhole',
+        'H': 'Handhold',
+        'V': 'Vault'
+      };
+      for (const sym of symbols) {
+        const label = symbolLabels[sym] || sym;
+        rows += entryRow({ label, html: swatchSymbol(sym, st.color) });
+      }
+    } else {
+      rows = entryRow({ label: "Features", html: swatchFor(st) });
+    }
   }
 
   const id = String(st.id);

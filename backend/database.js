@@ -141,7 +141,15 @@ async function getStructureData(bounds = null, limit = 1000) {
             'locate_tog', locate_tog,
             'latitude', latitude,
             'longitude', longitude,
-            'feature_type', 'Structure'
+            'feature_type', 'Structure',
+            'symbol', CASE
+              WHEN COALESCE(subtypecod, 0) = 0 THEN '?'
+              WHEN subtypecod = 1 THEN 'M'
+              WHEN subtypecod = 2 THEN 'H'
+              WHEN subtypecod = 3 THEN
+                CASE WHEN LOWER(COALESCE(owner, '')) LIKE '%everstream%' THEN 'H' ELSE 'V' END
+              ELSE '?'
+            END
           )
         ) as feature
         FROM raw_data.structure_everstream
@@ -348,7 +356,15 @@ async function clipStructureData(aoiGeojson, limit = 100000) {
             'locate_tog', f.locate_tog,
             'latitude', f.latitude,
             'longitude', f.longitude,
-            'feature_type', 'Structure'
+            'feature_type', 'Structure',
+            'symbol', CASE
+              WHEN COALESCE(f.subtypecod, 0) = 0 THEN '?'
+              WHEN f.subtypecod = 1 THEN 'M'
+              WHEN f.subtypecod = 2 THEN 'H'
+              WHEN f.subtypecod = 3 THEN
+                CASE WHEN LOWER(COALESCE(f.owner, '')) LIKE '%everstream%' THEN 'H' ELSE 'V' END
+              ELSE '?'
+            END
           )
         ) as feature
         FROM raw_data.structure_everstream f,

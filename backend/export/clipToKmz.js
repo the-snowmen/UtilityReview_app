@@ -173,8 +173,30 @@ function drawLegendPng(layersMeta) {
     const w = Math.max(1, Math.min(12, Number(L.weight || 2)));
     const op = Number(L.opacity ?? 1);
 
-    function drawSwatch(x, cy, colorHex) {
-      if (g.includes("Point")) {
+    function drawSwatch(x, cy, colorHex, symbol = null) {
+      if (symbol) {
+        // Draw letter symbol for structures
+        const size = 20;
+        const cx = x + 10;
+        ctx.globalAlpha = 1;
+        // Draw white background circle
+        ctx.beginPath();
+        ctx.arc(cx, cy, size / 2, 0, Math.PI * 2);
+        ctx.fillStyle = "#ffffff";
+        ctx.fill();
+        // Draw colored border
+        ctx.strokeStyle = colorHex;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        // Draw letter
+        ctx.fillStyle = colorHex;
+        ctx.font = "bold 14px Segoe UI, system-ui, Arial";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(symbol, cx, cy);
+        ctx.textAlign = "left";
+        ctx.textBaseline = "alphabetic";
+      } else if (g.includes("Point")) {
         const r = Math.max(3, w + 2);
         ctx.beginPath(); ctx.arc(x+10, cy, r, 0, Math.PI*2);
         ctx.fillStyle = colorHex; ctx.globalAlpha = op; ctx.fill(); ctx.globalAlpha = 1;
@@ -196,7 +218,7 @@ function drawLegendPng(layersMeta) {
 
     const entries = (L.entries?.length ? L.entries : [{ label: "Features", color: L.baseColor }]);
     for (const ent of entries) {
-      drawSwatch(sidePad, y+8, ent.color || L.baseColor);
+      drawSwatch(sidePad, y+8, ent.color || L.baseColor, ent.symbol || null);
       ctx.fillStyle = "#0b1324";
       ctx.font = "12px Segoe UI, system-ui, Arial";
       ctx.fillText(String(ent.label ?? ""), sidePad + 52, y + 12);
@@ -366,6 +388,7 @@ async function exportClippedKmz(aoi, data, outPath, opts = {}) {
         if (orig.text)  kept.text  = orig.text;
         if (orig.color) kept.color = orig.color;
         if (orig.comment) kept.comment = orig.comment;
+        if (orig.symbol) kept.symbol = orig.symbol; // Preserve structure symbols
         if (keepField && (orig[keepField] !== undefined)) kept[keepField] = orig[keepField];
         f.properties = kept;
       }
@@ -385,7 +408,30 @@ async function exportClippedKmz(aoi, data, outPath, opts = {}) {
       const hidden = normSet(L.style.styleBy.hidden || []);
       filteredEntries = [...present]
         .filter(k => !hidden.has(k))
-        .map(k => ({ key: k, color: rules[k] || L.style.styleBy.defaultColor || L.style.baseColor || "#ff3333" }));
+        .map(k => {
+          // Find a feature with this category to get its symbol
+          const feat = clipped.features.find(f => normVal(f?.properties?.[keepField]) === k);
+          const symbol = feat?.properties?.symbol;
+          return {
+            key: k,
+            color: rules[k] || L.style.styleBy.defaultColor || L.style.baseColor || "#ff3333",
+            symbol: symbol || null
+          };
+        });
+    } else {
+      // If no styleBy, check if layer has structure symbols
+      const symbols = new Set();
+      for (const f of clipped.features) {
+        if (f?.properties?.symbol) symbols.add(f.properties.symbol);
+      }
+      if (symbols.size > 0) {
+        const symbolLabels = { '?': 'Unknown', 'M': 'Manhole', 'H': 'Handhold', 'V': 'Vault' };
+        filteredEntries = Array.from(symbols).sort().map(sym => ({
+          key: symbolLabels[sym] || sym,
+          color: L.style?.baseColor || "#ff3333",
+          symbol: sym
+        }));
+      }
     }
 
     layersClipped.push({
@@ -417,7 +463,11 @@ async function exportClippedKmz(aoi, data, outPath, opts = {}) {
     weight: L.style.weight,
     opacity: L.style.opacity,
     entries: (L.style._legendEntries && L.style._legendEntries.length)
-      ? L.style._legendEntries.map(e => ({ label: `${L.style.styleBy?.field ?? ""}${L.style.styleBy ? " = " : ""}${e.key}`, color: e.color }))
+      ? L.style._legendEntries.map(e => ({
+          label: `${L.style.styleBy?.field ?? ""}${L.style.styleBy ? " = " : ""}${e.key}`,
+          color: e.color,
+          symbol: e.symbol || null
+        }))
       : (L.style.styleBy ? [] : [{ label: "Features", color: L.style.baseColor }]),
   }));
   const legendPng = drawLegendPng(legendMeta);
