@@ -238,8 +238,9 @@ function escapeXml(s) {
 function buildKmlDoc({ aoi, layers, includeAoi, kmlName = "AOI Export" }) {
   const styles = new Map();
   const safeId = s => String(s).replace(/[^A-Za-z0-9_\-]/g, "_");
-  const styleIdFor = (layerIdx, colorHex, weight, kind) => {
-    const key = `s_${layerIdx}_${safeId(String(colorHex).replace("#",""))}_${Math.max(1,weight)}_${kind}`;
+  const styleIdFor = (layerIdx, colorHex, weight, kind, symbol = null) => {
+    const symSuffix = symbol ? `_${symbol}` : '';
+    const key = `s_${layerIdx}_${safeId(String(colorHex).replace("#",""))}_${Math.max(1,weight)}_${kind}${symSuffix}`;
     if (styles.has(key)) return key;
 
     const kmlColor = hexToKmlColor(colorHex, 1);
@@ -247,9 +248,17 @@ function buildKmlDoc({ aoi, layers, includeAoi, kmlName = "AOI Export" }) {
     const line = `<LineStyle><color>${kmlColor}</color><width>${Math.max(1, weight)}</width></LineStyle>`;
     const poly = (kind === "pl") ? `<PolyStyle><color>${kmlFill}</color><fill>1</fill><outline>1</outline></PolyStyle>` : "";
     const iconScale = Math.max(0.8, Math.min(2, 0.6 + Number(weight) * 0.2));
-    const icon = (kind === "pt")
-      ? `<IconStyle><color>${kmlColor}</color><scale>${iconScale.toFixed(2)}</scale><Icon><href>media/dot.png</href></Icon></IconStyle>`
-      : "";
+
+    let icon = "";
+    if (kind === "pt") {
+      if (symbol) {
+        // Use symbol-specific icon for structures
+        icon = `<IconStyle><color>${kmlColor}</color><scale>${iconScale.toFixed(2)}</scale><Icon><href>media/symbol_${symbol}.png</href></Icon></IconStyle>`;
+      } else {
+        // Use generic dot for other points
+        icon = `<IconStyle><color>${kmlColor}</color><scale>${iconScale.toFixed(2)}</scale><Icon><href>media/dot.png</href></Icon></IconStyle>`;
+      }
+    }
 
     styles.set(key, `<Style id="${key}">${icon}${line}${poly}</Style>`);
     return key;
@@ -257,7 +266,9 @@ function buildKmlDoc({ aoi, layers, includeAoi, kmlName = "AOI Export" }) {
 
   const folders = [];
 
+  console.log(`[buildKmlDoc] includeAoi=${includeAoi}, aoi?.features?.length=${aoi?.features?.length}`);
   if (includeAoi && (aoi?.features?.length)) {
+    console.log(`[buildKmlDoc] Including AOI with ${aoi.features.length} features`);
     const aoiStyle = `
       <Style id="aoi-style">
         <LineStyle><color>${hexToKmlColor("#ff5a5f", 1)}</color><width>2</width></LineStyle>
@@ -272,6 +283,8 @@ function buildKmlDoc({ aoi, layers, includeAoi, kmlName = "AOI Export" }) {
     `).join("\n");
     folders.push(`<Folder><name>AOI</name>${aoiPlcs}</Folder>`);
     styles.set("aoi-style", aoiStyle);
+  } else {
+    console.log(`[buildKmlDoc] NOT including AOI - includeAoi=${includeAoi}, hasFeatures=${!!aoi?.features?.length}`);
   }
 
   layers.forEach((L, idx) => {
@@ -290,15 +303,37 @@ function buildKmlDoc({ aoi, layers, includeAoi, kmlName = "AOI Export" }) {
       if (val && hidden.has(val)) return "";
 
       const color = props.color || (val && rules[val]) || sb?.defaultColor || base;
-      const sid = styleIdFor(idx, color, weight, isPoint ? "pt" : "pl");
+      const symbol = props.symbol || null; // Get structure symbol if present
+
+      // Increase line width for conduit and fibercable exports
+      const featureType = props.feature_type || '';
+      let exportWeight = weight;
+      if (featureType === 'FiberCable' || featureType === 'Conduit') {
+        exportWeight = Math.min(12, weight * 2.5); // Make lines thicker
+      }
+
+      const sid = styleIdFor(idx, color, exportWeight, isPoint ? "pt" : "pl", symbol);
 
       const title = props.title ? String(props.title).trim() : "";
       const text  = props.text  ? String(props.text).trim()  : "";
       const comment = props.comment ? String(props.comment) : null;
-      const nameStr = title || (comment || L.name);
+
+      // For database features without custom names, use a generic name or skip
+      let nameStr;
+      if (title) {
+        nameStr = title;
+      } else if (comment) {
+        nameStr = comment;
+      } else if (featureType === 'Structure') {
+        // Don't show generic "Structure (Database)" name
+        nameStr = "";
+      } else {
+        nameStr = L.name;
+      }
+
       const descStr = text || ((comment && !title) ? comment : "");
 
-      const nameXml = `<name>${escapeXml(nameStr)}</name>`;
+      const nameXml = nameStr ? `<name>${escapeXml(nameStr)}</name>` : "";
       const descXml = descStr ? `<description><![CDATA[${descStr}]]></description>` : "";
 
       return `
@@ -350,7 +385,10 @@ async function exportClippedKmz(aoi, data, outPath, opts = {}) {
   const keepAttrs  = !!opts.keepAttributes; // we set false from main
   const kmlName    = String(opts.kmlName || "AOI Export");
 
+  console.log(`[exportClippedKmz] includeAoi=${includeAoi}, aoi type=${aoi?.type}, opts=`, opts);
+
   const aoiFC = (aoi?.type === "FeatureCollection") ? aoi : { type: "FeatureCollection", features: [aoi] };
+  console.log(`[exportClippedKmz] aoiFC features count=${aoiFC.features.length}`);
 
   const layersIn = Array.isArray(data) ? data : [{ name: "Layer", style: { baseColor: "#ff3333", weight: 2, opacity: 1 }, features: data }];
 
@@ -425,7 +463,7 @@ async function exportClippedKmz(aoi, data, outPath, opts = {}) {
         if (f?.properties?.symbol) symbols.add(f.properties.symbol);
       }
       if (symbols.size > 0) {
-        const symbolLabels = { '?': 'Unknown', 'M': 'Manhole', 'H': 'Handhold', 'V': 'Vault' };
+        const symbolLabels = { '?': 'Unknown', 'M': 'Manhole', 'H': 'Handhole', 'V': 'Vault' };
         filteredEntries = Array.from(symbols).sort().map(sym => ({
           key: symbolLabels[sym] || sym,
           color: L.style?.baseColor || "#ff3333",
@@ -479,12 +517,51 @@ async function exportClippedKmz(aoi, data, outPath, opts = {}) {
   dctx.beginPath(); dctx.arc(8,8,6,0,Math.PI*2); dctx.fill();
   const dotPng = dotCanvas.toBuffer("image/png");
 
+  // Generate symbol icons for structures (M, H, V, ?)
+  function createSymbolIcon(symbol, color = "#9333ea") {
+    const size = 48; // Larger for better quality in Google Earth
+    const canvas = createCanvas(size, size);
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, size, size);
+
+    const cx = size / 2;
+    const cy = size / 2;
+    const r = size / 2 - 4;
+
+    // Draw white background circle
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fillStyle = "#ffffff";
+    ctx.fill();
+
+    // Draw colored border
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    // Draw symbol text
+    ctx.fillStyle = color;
+    ctx.font = `bold ${Math.round(size * 0.6)}px Arial`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(symbol, cx, cy);
+
+    return canvas.toBuffer("image/png");
+  }
+
   const kml = buildKmlDoc({ aoi: aoiFC, layers: layersClipped, includeAoi, kmlName });
 
   const zip = new JSZip();
   zip.file("doc.kml", kml);
   zip.file("legend.png", legendPng);
-  zip.folder("media").file("dot.png", dotPng);
+  const mediaFolder = zip.folder("media");
+  mediaFolder.file("dot.png", dotPng);
+
+  // Add structure symbol icons
+  mediaFolder.file("symbol_M.png", createSymbolIcon("M"));
+  mediaFolder.file("symbol_H.png", createSymbolIcon("H"));
+  mediaFolder.file("symbol_V.png", createSymbolIcon("V"));
+  mediaFolder.file("symbol_?.png", createSymbolIcon("?"));
 
   const buf = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE", compressionOptions: { level: 6 } });
   await fsp.mkdir(path.dirname(outPath), { recursive: true });

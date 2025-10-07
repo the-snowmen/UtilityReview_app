@@ -224,7 +224,7 @@ function renderGroup(st) {
       const symbolLabels = {
         '?': 'Unknown',
         'M': 'Manhole',
-        'H': 'Handhold',
+        'H': 'Handhole',
         'V': 'Vault'
       };
       for (const sym of symbols) {

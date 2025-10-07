@@ -37,6 +37,15 @@ L.SymbolMarker = L.CircleMarker.extend({
       ctx.fillText(this.options.symbol, p.x, p.y);
       ctx.restore();
     }
+  },
+
+  // Ensure click detection works properly
+  _containsPoint: function(p) {
+    // Use circular hit detection based on radius
+    const dx = p.x - this._point.x;
+    const dy = p.y - this._point.y;
+    const r = this._radius + (this.options.weight || 1) / 2;
+    return dx * dx + dy * dy <= r * r;
   }
 });
 

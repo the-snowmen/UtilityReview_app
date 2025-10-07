@@ -62,9 +62,9 @@ This application implements a specialized symbology system for structure feature
 Structures are displayed with letter symbols based on their `subtypecod` field:
 - **?** = Unknown (subtypecod = 0 or null)
 - **M** = Manhole (subtypecod = 1)
-- **H** = Handhold (subtypecod = 2)
+- **H** = Handhole (subtypecod = 2)
 - **V** = Vault (subtypecod = 3, non-Everstream)
-- **H** = Handhold (subtypecod = 3, Everstream-owned)
+- **H** = Handhole (subtypecod = 3, Everstream-owned)
 
 ### Implementation Components
 
@@ -167,7 +167,7 @@ function renderStructureLegend(color) {
   const symbolLabels = {
     '?': 'Unknown',
     'M': 'Manhole',
-    'H': 'Handhold',
+    'H': 'Handhole',
     'V': 'Vault'
   };
 
@@ -207,7 +207,7 @@ features.forEach(f => {
 });
 
 if (symbols.size > 0) {
-  const symbolLabels = { '?': 'Unknown', 'M': 'Manhole', 'H': 'Handhold', 'V': 'Vault' };
+  const symbolLabels = { '?': 'Unknown', 'M': 'Manhole', 'H': 'Handhole', 'V': 'Vault' };
   legendEntries = Array.from(symbols).sort().map(sym => ({
     label: symbolLabels[sym] || sym,
     symbol: sym,
