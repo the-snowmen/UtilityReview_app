@@ -1,26 +1,35 @@
-// frontend/preload.js (guarded to avoid double-injects from bundlers)
+// frontend/preload.js
 (() => {
   if (globalThis.__UR_PRELOAD__) return;
-
   const { contextBridge, ipcRenderer } = require("electron");
 
-  const safeInvoke = (channel, payload) =>
-    ipcRenderer.invoke(channel, payload).catch(err => ({ ok: false, error: String(err) }));
+  const call = (chn, payload) =>
+    ipcRenderer.invoke(chn, payload).catch(err => ({ ok:false, error:String(err?.message||err) }));
 
   contextBridge.exposeInMainWorld("backend", {
-    // File selection & ingest
-    selectFiles: () => safeInvoke("select-files"),
-    ingestFile: (filePath, srcEpsg = null) => safeInvoke("ingest-file", { path: filePath, srcEpsg }),
+    selectFiles: () => call("select-files"),
+    ingestFile:  (path, srcEpsg=null) => call("ingest-file", { path, srcEpsg }),
 
-    // Back-compat
-    selectShapefiles: () => safeInvoke("select-files"),
-    ingestShapefile: (p, s = null) => safeInvoke("ingest-file", { path: p, srcEpsg: s }),
+    // AOI helpers
+    aoiPickKmx: () => call("aoi:pick-kmx"),
 
-    // AOI export
-    exportAoiKmz: (aoi, features, suggestedName = "aoi_export.kmz") =>
-      safeInvoke("export-aoi-kmz", { aoi, features, suggestedName }),
+    // Export
+    exportAoiKmz: (aoi, data, suggestedName="aoi_export.kmz", opts={}) =>
+      call("export-aoi-kmz", { aoi, data, suggestedName, opts }),
 
-    // Diagnostics
+    // Database operations
+    dbLoadFiberCables: (bounds, limit) => call("db:load-fiber-cables", { bounds, limit }),
+    dbLoadConduit: (bounds, limit) => call("db:load-conduit", { bounds, limit }),
+    dbLoadStructure: (bounds, limit) => call("db:load-structure", { bounds, limit }),
+    dbGetSchema: () => call("db:get-schema"),
+    dbGetBounds: () => call("db:get-bounds"),
+    dbTestConnection: () => call("db:test-connection"),
+    dbDiagnoseGeometry: (tableName) => call("db:diagnose-geometry", { tableName }),
+    // Database clipping with AOI
+    dbClipFiberCables: (aoi, limit) => call("db:clip-fiber-cables", { aoi, limit }),
+    dbClipConduit: (aoi, limit) => call("db:clip-conduit", { aoi, limit }),
+    dbClipStructure: (aoi, limit) => call("db:clip-structure", { aoi, limit }),
+
     ping: () => "preload ✅",
   });
 

@@ -45,6 +45,10 @@ $RECYCLE.BIN/
 .env
 .env.*.local
 
+# --- Claude Code specific ---
+CLAUDE.md
+out.json
+
 # --- Python (in case you add scripts) ---
 __pycache__/
 *.py[cod]

@@ -6,6 +6,49 @@ import { refreshLegend } from "./legend.js";
 // Track temporary identify/debug markers so we can remove them.
 const activeMarkers = new Set();
 
+// Custom canvas renderer that supports text symbols
+L.SymbolMarker = L.CircleMarker.extend({
+  _updatePath: function() {
+    if (!this.options.symbol) {
+      return L.CircleMarker.prototype._updatePath.call(this);
+    }
+
+    const renderer = this._renderer;
+    const ctx = renderer._ctx;
+    const p = this._point;
+    const r = Math.max(Math.round(this._radius), 1);
+
+    if (ctx) {
+      ctx.save();
+      // Draw white circle background
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r, 0, Math.PI * 2, false);
+      ctx.fillStyle = '#ffffff';
+      ctx.fill();
+      // Draw colored border
+      ctx.strokeStyle = this.options.color || '#3388ff';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      // Draw symbol text
+      ctx.fillStyle = this.options.color || '#3388ff';
+      ctx.font = `bold ${Math.round(r * 1.4)}px Arial`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(this.options.symbol, p.x, p.y);
+      ctx.restore();
+    }
+  },
+
+  // Ensure click detection works properly
+  _containsPoint: function(p) {
+    // Use circular hit detection based on radius
+    const dx = p.x - this._point.x;
+    const dy = p.y - this._point.y;
+    const r = this._radius + (this.options.weight || 1) / 2;
+    return dx * dx + dy * dy <= r * r;
+  }
+});
+
 // ---------- helpers ----------
 function toFeatureCollection(gj) {
   if (!gj) return { type: "FeatureCollection", features: [] };
@@ -60,17 +103,38 @@ function buildLeafletLayer(source, st, interactive) {
     interactive,
     style: styleFn,
     filter: (feature) => !isHiddenByCategory(st, feature),
-    pointToLayer: (feature, latlng) =>
-      L.circleMarker(latlng, {
+    pointToLayer: (feature, latlng) => {
+      const symbol = feature?.properties?.symbol;
+      const color = colorForFeature(st, feature);
+      const radius = Math.max(8, st.weight + 6); // Slightly larger for text visibility
+
+      // Use custom SymbolMarker for structures with symbols (canvas-based)
+      if (symbol) {
+        return new L.SymbolMarker(latlng, {
+          pane: st.paneName,
+          renderer: paneRenderer,
+          interactive,
+          radius: radius,
+          color: color,
+          opacity: st.opacity,
+          fillColor: '#ffffff',
+          fillOpacity: 1,
+          symbol: symbol,
+        });
+      }
+
+      // Default circle marker for non-structure points
+      return L.circleMarker(latlng, {
         pane: st.paneName,
         renderer: paneRenderer,
         interactive,
         radius: Math.max(3, st.weight + 1),
-        color: colorForFeature(st, feature),
+        color: color,
         opacity: st.opacity,
-        fillColor: colorForFeature(st, feature),
+        fillColor: color,
         fillOpacity: Math.max(0, Math.min(1, st.opacity * 0.5)),
-      }),
+      });
+    },
     onEachFeature: (feature, lyr) => {
       if (!interactive) return;
       const handler = (e) => {

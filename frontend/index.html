@@ -14,6 +14,11 @@
 
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
     <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" crossorigin="">
+
+    <style>
+      html, body, #map { height: 100%; margin: 0; padding: 0; }
+    </style>
+
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
@@ -24,8 +29,36 @@
     <aside class="layers-panel">
       <div class="layers-header" id="layersHeader">
         <span>Layers</span>
-        <button id="btnImport" class="pill ghost" title="Import data" style="float:right">Import</button>
+        <div style="display: flex; gap: 5px;">
+          <button id="btnImport" class="pill ghost" title="Import data">Import</button>
+        </div>
       </div>
+
+      <!-- Facilities Section -->
+      <div class="facilities-section">
+        <div class="facilities-header">Everstream Facilities</div>
+        <label class="facility-toggle">
+          <input type="checkbox" id="toggleFiberUnderground">
+          <span class="facility-indicator" style="background: #28a745;"></span>
+          Underground Fiber
+        </label>
+        <label class="facility-toggle">
+          <input type="checkbox" id="toggleFiberAerial">
+          <span class="facility-indicator" style="background: #007bff;"></span>
+          Aerial Fiber
+        </label>
+        <label class="facility-toggle">
+          <input type="checkbox" id="toggleConduit">
+          <span class="facility-indicator" style="background: #8b0000;"></span>
+          Conduit
+        </label>
+        <label class="facility-toggle">
+          <input type="checkbox" id="toggleStructure">
+          <span class="facility-indicator" style="background: #8b5cf6;"></span>
+          Structure
+        </label>
+      </div>
+
       <ul id="layerList" class="layers-list"></ul>
     </aside>
 
@@ -58,8 +91,9 @@
 
     <!-- AOI panel -->
     <div id="aoiPanel" class="aoi-panel" hidden>
-      <label class="inline"><input type="checkbox" id="chkKeepAttrs"> Keep attrs</label>
-      <label class="inline"><input type="checkbox" id="chkIncludeAoi"> Include AOI</label>
+      <label class="inline"><input type="checkbox" id="chkIncludeAoi" checked> Include AOI</label>
+      <!-- Import AOI here only -->
+      <button id="btn-aoi-from-kmz" class="ur-btn">AOI from KML/KMZ…</button>
       <button id="btnExportAoi" class="pill">Export</button>
       <button id="btnClearAoi" class="pill ghost">Clear AOI</button>
       <div class="divider"></div>
@@ -75,32 +109,7 @@
       <div id="infoBody" class="info-body"></div>
     </div>
 
-    <!-- Coordinate Search Popover (minimal) -->
-    <div id="coordSearch" class="coord-pop" hidden>
-      <div class="coord-head">
-        <strong>Coordinate Search</strong>
-        <button id="coordClose" class="pill ghost" title="Close">✕</button>
-      </div>
-      <div class="coord-body">
-        <input id="coordInput" type="text" placeholder="e.g. 41.88, -87.63" />
-        <div class="coord-row">
-          <label class="radio">
-            <input type="radio" name="coordMode" value="latlon" checked>
-            <span>Lat, Lon</span>
-          </label>
-          <label class="radio">
-            <input type="radio" name="coordMode" value="lonlat">
-            <span>Lon, Lat</span>
-          </label>
-        </div>
-        <div class="coord-row">
-          <button id="coordGo" class="pill">Go</button>
-          <small class="hint">Tip: press <kbd>/</kbd> to open</small>
-        </div>
-      </div>
-    </div>
-
-    <!-- Style Modal -->
+    <!-- Style modal -->
     <div id="styleModal" class="modal" hidden>
       <div class="modal-box">
         <div class="modal-head">
@@ -127,7 +136,6 @@
         </div>
       </div>
     </div>
-
 
     <!-- Scripts -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
